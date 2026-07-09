@@ -22,6 +22,7 @@ export function publicConfig(config) {
         openaiModel: config.openaiModel ?? "unset",
         chatTimeoutMs: config.chatTimeoutMs,
         maxSearchResults: config.maxSearchResults,
+        codexProactiveRecall: config.codexProactiveRecall,
     };
 }
 export function summarizeRecords(records) {

@@ -104,7 +104,7 @@ Codex users can also enable auto-capture:
 pathmark codex install --replace-legacy-hooks
 ```
 
-When you want the visible "what memory did you use?" entry in Codex, Claude Code, Cursor, opencode, Gemini CLI, Grok-compatible MCP hosts, or any other MCP harness, call the `recall_memory` tool before answering. Codex auto-capture still injects memory automatically on session start, but `recall_memory` is the portable visible trace across harnesses.
+When you want the visible "what memory did you use?" entry in Codex, Claude Code, Cursor, opencode, Gemini CLI, Grok-compatible MCP hosts, or any other MCP harness, call the `recall_memory` tool before answering. Codex auto-capture also recalls relevant memory automatically at session start and before non-trivial prompts, but `recall_memory` is the portable visible trace across harnesses.
 
 ### Claude Code
 
@@ -199,6 +199,15 @@ pathmark codex install --replace-legacy-hooks
 
 This registers the Pathmark MCP server, enables Codex hooks, and removes old compatible hook commands from Codex. It does not delete or move memory files.
 
+The Codex adapter is proactive by default:
+
+- prompt, tool, and transcript context are captured locally;
+- session start/resume injects relevant workspace memory;
+- each non-trivial user prompt searches the local store and injects matching memory as Codex `additionalContext`;
+- no matching memory means no extra context is injected.
+
+Set `PATHMARK_CODEX_PROACTIVE_RECALL=off` if you want Codex hooks to capture memory but stop prompt-time recall.
+
 Use `--replace-legacy-hooks` when you want Pathmark hooks to take over from earlier compatible hook commands. Without it, Pathmark installs alongside existing hook commands.
 
 Check the adapter status:
@@ -221,6 +230,7 @@ pathmark codex uninstall
 | --- | --- | --- |
 | `PATHMARK_STORE_DIR` | `~/.pathmark/memory` | Directory for `memory.jsonl`. |
 | `PATHMARK_MAX_SEARCH_RESULTS` | `12` | Default search limit. |
+| `PATHMARK_CODEX_PROACTIVE_RECALL` | `on` | Automatically inject relevant Pathmark context before non-trivial Codex prompts. Use `off` to capture without prompt-time recall. |
 | `PATHMARK_SYNTHESIS_PROVIDER` | `client` | `client`, `command`, `codex`, or `openai-compatible`. |
 | `PATHMARK_CHAT_COMMAND` | unset | Command provider: receives a synthesized prompt on stdin and writes an answer on stdout. |
 | `PATHMARK_CODEX_COMMAND` | `codex` | Codex provider command. |

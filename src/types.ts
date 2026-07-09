@@ -33,6 +33,7 @@ export interface PathmarkConfig {
   openaiModel?: string;
   chatTimeoutMs: number;
   maxSearchResults: number;
+  codexProactiveRecall: boolean;
 }
 
 export interface SearchResult {

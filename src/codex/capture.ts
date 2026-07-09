@@ -25,6 +25,7 @@ const GENERIC_RECALL_TOKENS = new Set(["codex", "coding", "users", "user", "mac"
 const GENERIC_RECALL_TERMS = ["project", "decisions", "preferences"];
 const RECALL_TEXT_LIMIT = 240;
 const RECALL_SEARCH_LIMIT = 50;
+const PROMPT_RECALL_LIMIT = 5;
 const IMMEDIATE_PROMPT_TAG = "immediate-prompt";
 const IMMEDIATE_PROMPT_WINDOW_MS = 5 * 60 * 1000;
 const TRIVIAL_ASSISTANT_TURN = /^(?:done|ok|fixed|complete|completed)[.!?]*$/i;
@@ -46,16 +47,20 @@ export async function recall(input: CodexHookInput): Promise<string> {
 export async function prompt(input: CodexHookInput): Promise<string> {
   const text = input.prompt?.trim() ?? "";
   if (shouldSkipUserPrompt(text)) return "";
+  const config = loadConfig();
+  const store = new PathmarkStore(config);
 
   try {
-    await saveCapturedRecord({
+    const context = config.codexProactiveRecall ? await proactivePromptContext(store, input, text, config.memoryFile) : "";
+    await store.addRecord(capturedRecord({
       sessionId: sessionId(input),
       cwd: input.cwd,
       role: "user",
       text,
       at: new Date().toISOString(),
       immediatePrompt: true,
-    });
+    }));
+    if (context) return context;
   } catch (error) {
     return hookWarning("capture the prompt", error);
   }
@@ -66,6 +71,35 @@ export async function prompt(input: CodexHookInput): Promise<string> {
     "This prompt may depend on Pathmark memory. Prefer mcp__pathmark__recall_memory or mcp__pathmark__chat when the user wants visible memory entries; use mcp__pathmark__search_memory for exact records.",
     "</pathmark-memory-nudge>",
   ].join("\n");
+}
+
+async function proactivePromptContext(
+  store: PathmarkStore,
+  input: CodexHookInput,
+  promptText: string,
+  memoryFile: string,
+): Promise<string> {
+  const query = promptRecallQuery(input, promptText);
+  if (!query) return "";
+
+  const tagFilters = promptRecallTagFilters(input);
+  const searches = tagFilters.map((tags) => store.search({ query, tags, limit: RECALL_SEARCH_LIMIT }));
+  const results = await Promise.all(searches.length > 0 ? searches : [store.search({ query, limit: RECALL_SEARCH_LIMIT })]);
+  const merged = new Map<string, SearchResult>();
+
+  for (const resultSet of results) {
+    for (const result of resultSet) {
+      if (isCurrentImmediatePrompt(result, input, promptText)) continue;
+      const existing = merged.get(result.record.id);
+      if (!existing || result.score > existing.score) merged.set(result.record.id, result);
+    }
+  }
+
+  const filtered = filterRecallResults([...merged.values()], input)
+    .sort((a, b) => b.score - a.score || b.record.createdAt.localeCompare(a.record.createdAt))
+    .slice(0, PROMPT_RECALL_LIMIT);
+  if (filtered.length === 0) return "";
+  return memoryBlock(filtered, memoryFile);
 }
 
 export async function observe(input: CodexHookInput): Promise<string> {
@@ -302,6 +336,34 @@ function recallSpecificTerms(input: CodexHookInput): string[] {
   const session = input.session_id?.trim();
   const sessionTerms = session && !GENERIC_RECALL_TOKENS.has(session.toLowerCase()) ? [session] : [];
   return [...new Set([...(workspaceTag ? [workspaceTag] : []), ...cwdTerms, ...sessionTerms])];
+}
+
+function promptRecallQuery(input: CodexHookInput, promptText: string): string {
+  const promptTerms = promptText
+    .toLowerCase()
+    .split(/[^a-z0-9_-]+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length > 2 && !GENERIC_RECALL_TOKENS.has(term));
+  const cwdTerms = recallTermsFromCwd(input.cwd);
+  const session = input.session_id?.trim();
+  const sessionTerms = session && !GENERIC_RECALL_TOKENS.has(session.toLowerCase()) ? [session] : [];
+  return [...new Set([...promptTerms, ...cwdTerms, ...sessionTerms, ...GENERIC_RECALL_TERMS])].join(" ");
+}
+
+function promptRecallTagFilters(input: CodexHookInput): string[][] {
+  const filters: string[][] = [];
+  const workspaceTag = workspaceTagFromCwd(input.cwd);
+  if (workspaceTag) filters.push([workspaceTag]);
+  const session = input.session_id?.trim();
+  if (session) filters.push([`session:${session}`]);
+  return filters;
+}
+
+function isCurrentImmediatePrompt(result: SearchResult, input: CodexHookInput, promptText: string): boolean {
+  const record = result.record;
+  if (!record.tags.includes(IMMEDIATE_PROMPT_TAG)) return false;
+  if (record.source.toLowerCase() !== `codex:session:${sessionId(input).toLowerCase()}`) return false;
+  return normalizeCapturedText(record.text) === normalizeCapturedText(redactSecrets(promptText).text);
 }
 
 function recallTermsFromCwd(cwd: string | undefined): string[] {

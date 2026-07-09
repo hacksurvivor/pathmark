@@ -25,6 +25,7 @@ export function publicConfig(config: PathmarkConfig): Record<string, unknown> {
     openaiModel: config.openaiModel ?? "unset",
     chatTimeoutMs: config.chatTimeoutMs,
     maxSearchResults: config.maxSearchResults,
+    codexProactiveRecall: config.codexProactiveRecall,
   };
 }
 

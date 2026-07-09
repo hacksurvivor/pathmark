@@ -11,6 +11,16 @@ function envValue(name, fallback) {
     const value = process.env[name];
     return value && value.trim() ? value : fallback;
 }
+function envFlag(name, fallback) {
+    const value = process.env[name]?.trim().toLowerCase();
+    if (!value)
+        return fallback;
+    if (["0", "false", "off", "no"].includes(value))
+        return false;
+    if (["1", "true", "on", "yes"].includes(value))
+        return true;
+    return fallback;
+}
 export function loadConfig() {
     const storeDir = path.resolve(expandHome(envValue("PATHMARK_STORE_DIR", "~/.pathmark/memory")));
     return {
@@ -25,6 +35,7 @@ export function loadConfig() {
         openaiModel: process.env.PATHMARK_OPENAI_MODEL,
         chatTimeoutMs: Number.parseInt(process.env.PATHMARK_CHAT_TIMEOUT_MS ?? "120000", 10),
         maxSearchResults: Number.parseInt(process.env.PATHMARK_MAX_SEARCH_RESULTS ?? "12", 10),
+        codexProactiveRecall: envFlag("PATHMARK_CODEX_PROACTIVE_RECALL", true),
     };
 }
 function synthesisProvider() {

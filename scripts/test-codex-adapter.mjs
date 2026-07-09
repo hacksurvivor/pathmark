@@ -516,6 +516,42 @@ try {
   });
   assert.equal(nudge.includes("<pathmark-memory-nudge>"), true);
   assert.equal(await prompt({ session_id: "capture-session", prompt: "ok." }), "");
+
+  createStore("proactive-prompt");
+  await prompt({
+    cwd: "/workspace/pathmark",
+    session_id: "proactive-source",
+    prompt: "Remember launch checklist requires trusted publisher.",
+  });
+  const proactiveContext = await prompt({
+    cwd: "/workspace/pathmark",
+    session_id: "proactive-target",
+    prompt: "Continue the launch checklist now.",
+  });
+  assert.equal(proactiveContext.includes("<pathmark-memory>"), true);
+  assert.equal(proactiveContext.includes("Used memories:"), true);
+  assert.equal(proactiveContext.includes("launch checklist requires trusted publisher"), true);
+  assert.equal(proactiveContext.includes("Continue the launch checklist now"), false);
+
+  const previousProactiveRecall = process.env.PATHMARK_CODEX_PROACTIVE_RECALL;
+  try {
+    process.env.PATHMARK_CODEX_PROACTIVE_RECALL = "off";
+    createStore("proactive-off");
+    await prompt({
+      cwd: "/workspace/pathmark",
+      session_id: "proactive-off-source",
+      prompt: "Remember launch checklist requires trusted publisher.",
+    });
+    const proactiveOffContext = await prompt({
+      cwd: "/workspace/pathmark",
+      session_id: "proactive-off-target",
+      prompt: "Continue the launch checklist now.",
+    });
+    assert.equal(proactiveOffContext, "");
+  } finally {
+    restoreEnv("PATHMARK_CODEX_PROACTIVE_RECALL", previousProactiveRecall);
+  }
+
   await observe({
     session_id: "capture-session",
     tool_name: "functions.exec_command",

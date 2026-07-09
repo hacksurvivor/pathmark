@@ -18,6 +18,8 @@ Enable Codex auto-capture hooks:
 pathmark codex install --replace-legacy-hooks
 ```
 
+The hooks capture prompts, tool summaries, and transcripts. They also recall relevant memory automatically at session start/resume and before non-trivial prompts. Set `PATHMARK_CODEX_PROACTIVE_RECALL=off` to keep capture on but disable prompt-time recall.
+
 Check status:
 
 ```bash
