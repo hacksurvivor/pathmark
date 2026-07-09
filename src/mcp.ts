@@ -12,7 +12,7 @@ export async function runMcpServer(): Promise<void> {
 
   const server = new McpServer({
     name: "pathmark",
-    version: "0.1.3",
+    version: "0.1.4",
   });
 
   server.registerTool(
@@ -114,10 +114,11 @@ export async function runMcpServer(): Promise<void> {
       inputSchema: {
         query: z.string().default("").describe("Task, repo, or question to retrieve memory for. Empty query returns recent records."),
         limit: z.number().int().min(1).max(30).optional(),
+        tags: z.array(z.string()).optional().describe("Optional tags to scope visible recall, such as the current workspace tag."),
       },
     },
-    async ({ query, limit }) => {
-      const results = await store.search({ query, limit });
+    async ({ query, limit, tags }) => {
+      const results = await store.search({ query, limit, tags });
       return jsonText({
         mode: "transparent_recall",
         context: summarizeSearch(results),

@@ -532,6 +532,29 @@ try {
   assert.equal(proactiveContext.includes("Used memories:"), true);
   assert.equal(proactiveContext.includes("launch checklist requires trusted publisher"), true);
   assert.equal(proactiveContext.includes("Continue the launch checklist now"), false);
+  assert.equal(proactiveContext.includes("Visible recall request:"), true);
+  assert.equal(proactiveContext.includes("mcp__pathmark__recall_memory"), true);
+  assert.equal(proactiveContext.includes('"tags":["workspace:'), true);
+
+  const previousVisibleRecall = process.env.PATHMARK_CODEX_VISIBLE_RECALL;
+  try {
+    process.env.PATHMARK_CODEX_VISIBLE_RECALL = "off";
+    createStore("visible-recall-off");
+    await prompt({
+      cwd: "/workspace/pathmark",
+      session_id: "visible-off-source",
+      prompt: "Remember launch checklist requires trusted publisher.",
+    });
+    const visibleOffContext = await prompt({
+      cwd: "/workspace/pathmark",
+      session_id: "visible-off-target",
+      prompt: "Continue the launch checklist now.",
+    });
+    assert.equal(visibleOffContext.includes("<pathmark-memory>"), true);
+    assert.equal(visibleOffContext.includes("Visible recall request:"), false);
+  } finally {
+    restoreEnv("PATHMARK_CODEX_VISIBLE_RECALL", previousVisibleRecall);
+  }
 
   const previousProactiveRecall = process.env.PATHMARK_CODEX_PROACTIVE_RECALL;
   try {

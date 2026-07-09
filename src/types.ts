@@ -34,6 +34,7 @@ export interface PathmarkConfig {
   chatTimeoutMs: number;
   maxSearchResults: number;
   codexProactiveRecall: boolean;
+  codexVisibleRecall: boolean;
 }
 
 export interface SearchResult {

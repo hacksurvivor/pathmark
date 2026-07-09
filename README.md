@@ -58,7 +58,7 @@ Pathmark exposes these MCP tools:
 | `remember` | Save a raw memory item. |
 | `create_conclusion` | Save a higher-signal durable conclusion or preference. |
 | `search_memory` | Search memories and conclusions. |
-| `recall_memory` | Transparent recall: returns context plus the exact memory IDs, timestamps, sources, matches, tags, and previews used. |
+| `recall_memory` | Transparent recall: returns context plus the exact memory IDs, timestamps, sources, matches, tags, and previews used. Accepts optional `tags` for scoped visible recall. |
 | `get_context` | Return compact context for a task or question. |
 | `list_conclusions` | List saved conclusions. |
 | `delete_memory` | Soft-delete a memory or conclusion by id. |
@@ -204,9 +204,11 @@ The Codex adapter is proactive by default:
 - prompt, tool, and transcript context are captured locally;
 - session start/resume injects relevant workspace memory;
 - each non-trivial user prompt searches the local store and injects matching memory as Codex `additionalContext`;
+- when matching memory is found, Codex receives an instruction to call `recall_memory` with the same query and workspace tag so the UI can show the exact `usedMemories`;
 - no matching memory means no extra context is injected.
 
 Set `PATHMARK_CODEX_PROACTIVE_RECALL=off` if you want Codex hooks to capture memory but stop prompt-time recall.
+Set `PATHMARK_CODEX_VISIBLE_RECALL=off` if you want prompt-time recall without the visible `recall_memory` tool-call request.
 
 Use `--replace-legacy-hooks` when you want Pathmark hooks to take over from earlier compatible hook commands. Without it, Pathmark installs alongside existing hook commands.
 
@@ -231,6 +233,7 @@ pathmark codex uninstall
 | `PATHMARK_STORE_DIR` | `~/.pathmark/memory` | Directory for `memory.jsonl`. |
 | `PATHMARK_MAX_SEARCH_RESULTS` | `12` | Default search limit. |
 | `PATHMARK_CODEX_PROACTIVE_RECALL` | `on` | Automatically inject relevant Pathmark context before non-trivial Codex prompts. Use `off` to capture without prompt-time recall. |
+| `PATHMARK_CODEX_VISIBLE_RECALL` | `on` | Ask Codex to call `recall_memory` when prompt-time recall found context, so the UI shows the exact `usedMemories`. |
 | `PATHMARK_SYNTHESIS_PROVIDER` | `client` | `client`, `command`, `codex`, or `openai-compatible`. |
 | `PATHMARK_CHAT_COMMAND` | unset | Command provider: receives a synthesized prompt on stdin and writes an answer on stdout. |
 | `PATHMARK_CODEX_COMMAND` | `codex` | Codex provider command. |

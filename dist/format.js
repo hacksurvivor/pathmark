@@ -23,6 +23,7 @@ export function publicConfig(config) {
         chatTimeoutMs: config.chatTimeoutMs,
         maxSearchResults: config.maxSearchResults,
         codexProactiveRecall: config.codexProactiveRecall,
+        codexVisibleRecall: config.codexVisibleRecall,
     };
 }
 export function summarizeRecords(records) {

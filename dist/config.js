@@ -36,6 +36,7 @@ export function loadConfig() {
         chatTimeoutMs: Number.parseInt(process.env.PATHMARK_CHAT_TIMEOUT_MS ?? "120000", 10),
         maxSearchResults: Number.parseInt(process.env.PATHMARK_MAX_SEARCH_RESULTS ?? "12", 10),
         codexProactiveRecall: envFlag("PATHMARK_CODEX_PROACTIVE_RECALL", true),
+        codexVisibleRecall: envFlag("PATHMARK_CODEX_VISIBLE_RECALL", true),
     };
 }
 function synthesisProvider() {

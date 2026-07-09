@@ -26,6 +26,7 @@ export function publicConfig(config: PathmarkConfig): Record<string, unknown> {
     chatTimeoutMs: config.chatTimeoutMs,
     maxSearchResults: config.maxSearchResults,
     codexProactiveRecall: config.codexProactiveRecall,
+    codexVisibleRecall: config.codexVisibleRecall,
   };
 }
 

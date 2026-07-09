@@ -78,6 +78,15 @@ await request("tools/call", {
   },
 });
 
+await request("tools/call", {
+  name: "remember",
+  arguments: {
+    text: "Pathmark unrelated memory that tag-scoped recall should hide.",
+    tags: ["other"],
+    source: "smoke",
+  },
+});
+
 const search = await request("tools/call", {
   name: "search_memory",
   arguments: {
@@ -112,12 +121,16 @@ const recall = await request("tools/call", {
   arguments: {
     query: "MCP smoke",
     limit: 3,
+    tags: ["smoke"],
   },
 });
 
 const recallText = recall.content?.[0]?.text ?? "";
 if (!recallText.includes("Pathmark smoke test memory") || !recallText.includes("usedMemories")) {
   throw new Error("Recall memory did not return transparent memory context");
+}
+if (recallText.includes("tag-scoped recall should hide")) {
+  throw new Error("Recall memory ignored tag scoping");
 }
 
 child.kill("SIGTERM");

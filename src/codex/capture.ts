@@ -51,7 +51,12 @@ export async function prompt(input: CodexHookInput): Promise<string> {
   const store = new PathmarkStore(config);
 
   try {
-    const context = config.codexProactiveRecall ? await proactivePromptContext(store, input, text, config.memoryFile) : "";
+    const context = config.codexProactiveRecall
+      ? await proactivePromptContext(store, input, text, {
+          memoryFile: config.memoryFile,
+          visibleRecall: config.codexVisibleRecall,
+        })
+      : "";
     await store.addRecord(capturedRecord({
       sessionId: sessionId(input),
       cwd: input.cwd,
@@ -77,7 +82,7 @@ async function proactivePromptContext(
   store: PathmarkStore,
   input: CodexHookInput,
   promptText: string,
-  memoryFile: string,
+  options: { memoryFile: string; visibleRecall: boolean },
 ): Promise<string> {
   const query = promptRecallQuery(input, promptText);
   if (!query) return "";
@@ -99,7 +104,9 @@ async function proactivePromptContext(
     .sort((a, b) => b.score - a.score || b.record.createdAt.localeCompare(a.record.createdAt))
     .slice(0, PROMPT_RECALL_LIMIT);
   if (filtered.length === 0) return "";
-  return memoryBlock(filtered, memoryFile);
+  return memoryBlock(filtered, options.memoryFile, {
+    visibleRecall: options.visibleRecall ? { query, tags: primaryPromptRecallTags(input), limit: PROMPT_RECALL_LIMIT } : undefined,
+  });
 }
 
 export async function observe(input: CodexHookInput): Promise<string> {
@@ -242,15 +249,33 @@ function capturedRecord(input: {
   };
 }
 
-function memoryBlock(results: SearchResult[], memoryFile: string): string {
+function memoryBlock(
+  results: SearchResult[],
+  memoryFile: string,
+  options: { visibleRecall?: { query: string; tags: string[]; limit: number } } = {},
+): string {
   return [
     "<pathmark-memory>",
     "Pathmark memory context:",
     results.length > 0 ? `Used memories:\n${summarizeResults(results)}` : "No matching Pathmark memory found.",
+    options.visibleRecall && results.length > 0 ? visibleRecallInstruction(options.visibleRecall) : "",
     "",
     `Store: ${memoryFile}`,
     "MCP tools: use mcp__pathmark__recall_memory or mcp__pathmark__chat for visible memory entries; use mcp__pathmark__search_memory for exact records.",
     "</pathmark-memory>",
+  ].join("\n");
+}
+
+function visibleRecallInstruction(input: { query: string; tags: string[]; limit: number }): string {
+  const args: { query: string; limit: number; tags?: string[] } = {
+    query: input.query,
+    limit: input.limit,
+  };
+  if (input.tags.length > 0) args.tags = input.tags;
+  return [
+    "",
+    "Visible recall request:",
+    `Before answering, call mcp__pathmark__recall_memory with ${JSON.stringify(args)} so the UI shows the exact usedMemories behind this context.`,
   ].join("\n");
 }
 
@@ -339,7 +364,7 @@ function recallSpecificTerms(input: CodexHookInput): string[] {
 }
 
 function promptRecallQuery(input: CodexHookInput, promptText: string): string {
-  const promptTerms = promptText
+  const promptTerms = redactSecrets(promptText).text
     .toLowerCase()
     .split(/[^a-z0-9_-]+/)
     .map((term) => term.trim())
@@ -357,6 +382,13 @@ function promptRecallTagFilters(input: CodexHookInput): string[][] {
   const session = input.session_id?.trim();
   if (session) filters.push([`session:${session}`]);
   return filters;
+}
+
+function primaryPromptRecallTags(input: CodexHookInput): string[] {
+  const workspaceTag = workspaceTagFromCwd(input.cwd);
+  if (workspaceTag) return [workspaceTag];
+  const session = input.session_id?.trim();
+  return session ? [`session:${session}`] : [];
 }
 
 function isCurrentImmediatePrompt(result: SearchResult, input: CodexHookInput, promptText: string): boolean {

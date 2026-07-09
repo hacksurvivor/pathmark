@@ -121,7 +121,7 @@ pathmark codex install --replace-legacy-hooks
 
 This removes old compatible hook commands from Codex without deleting memory files.
 
-Codex hooks inject memory automatically at session start/resume and before non-trivial prompts. Prompt-time recall is scoped to the current workspace or session and only injects matching memories. When you want a visible tool-call entry that shows exactly which memories were used, call:
+Codex hooks inject memory automatically at session start/resume and before non-trivial prompts. Prompt-time recall is scoped to the current workspace or session and only injects matching memories. When matching memory is found, Pathmark also asks Codex to call scoped visible recall so the UI can show the exact `usedMemories`. You can also call it directly:
 
 ```text
 mcp__pathmark__recall_memory
