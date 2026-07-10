@@ -4,6 +4,7 @@ import { loadConfig } from "../config.js";
 import { deterministicId } from "../ids.js";
 import { redactSecrets } from "../redact.js";
 import { PathmarkStore } from "../store.js";
+import { tokenizeSearchText } from "../tokenize.js";
 import { readCursorState, writeCursor } from "./cursor.js";
 import { summarizeToolUse } from "./tool-summary.js";
 import { readCodexTranscriptStrict } from "./transcript.js";
@@ -309,11 +310,7 @@ function recallSpecificTerms(input) {
     return [...new Set([...(workspaceTag ? [workspaceTag] : []), ...cwdTerms, ...sessionTerms])];
 }
 function promptRecallQuery(input, promptText) {
-    const promptTerms = redactSecrets(promptText).text
-        .toLowerCase()
-        .split(/[^a-z0-9_-]+/)
-        .map((term) => term.trim())
-        .filter((term) => term.length > 2 && !GENERIC_RECALL_TOKENS.has(term));
+    const promptTerms = tokenizeSearchText(redactSecrets(promptText).text).filter((term) => !GENERIC_RECALL_TOKENS.has(term));
     const cwdTerms = recallTermsFromCwd(input.cwd);
     const session = input.session_id?.trim();
     const sessionTerms = session && !GENERIC_RECALL_TOKENS.has(session.toLowerCase()) ? [session] : [];
@@ -348,11 +345,7 @@ function recallTermsFromCwd(cwd) {
     if (!cwd?.trim())
         return [];
     const basename = path.basename(cwd.trim());
-    return basename
-        .toLowerCase()
-        .split(/[^a-z0-9_-]+/)
-        .map((term) => term.trim())
-        .filter((term) => term.length > 1 && !GENERIC_RECALL_TOKENS.has(term));
+    return tokenizeSearchText(basename).filter((term) => !GENERIC_RECALL_TOKENS.has(term));
 }
 function projectTagFromCwd(cwd) {
     if (!cwd?.trim())
@@ -387,11 +380,7 @@ function shouldSkipAssistantTurn(text) {
 async function immediatePromptRecords(store, session) {
     const records = new Map();
     const sessionTag = `session:${session}`.toLowerCase();
-    for (const record of await store.all()) {
-        if (!record.tags.includes("role-user"))
-            continue;
-        if (!record.tags.includes(IMMEDIATE_PROMPT_TAG))
-            continue;
+    for (const record of await store.recordsWithTags(["role-user", IMMEDIATE_PROMPT_TAG, sessionTag])) {
         if (record.source.toLowerCase() !== `codex:session:${session.toLowerCase()}` && !record.tags.includes(sessionTag)) {
             continue;
         }

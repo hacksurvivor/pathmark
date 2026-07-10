@@ -72,7 +72,12 @@ async function runHook(command: HookCommand): Promise<void> {
 async function printStatus(): Promise<void> {
   const config = loadConfig();
   const store = new PathmarkStore(config);
-  const [hooks, mcp, recordCount] = await Promise.all([hookStatus(), pathmarkMcpStatus(), store.count()]);
+  const [hooks, mcp, recordCount, health] = await Promise.all([
+    hookStatus(),
+    pathmarkMcpStatus(),
+    store.count(),
+    store.health(),
+  ]);
 
   console.log(
     JSON.stringify(
@@ -84,6 +89,8 @@ async function printStatus(): Promise<void> {
         storeDir: config.storeDir,
         memoryFile: config.memoryFile,
         recordCount,
+        invalidRecordCount: health.invalidRecordCount,
+        indexFile: health.indexFile,
       },
       null,
       2,

@@ -6,8 +6,8 @@ Pathmark Memory is intentionally small and local-first.
 
 ```bash
 npm install
-npm run build
-npm run smoke
+npm test
+npm run coverage
 ```
 
 ## Design Rules
@@ -17,6 +17,7 @@ npm run smoke
 - Keep MCP tool outputs structured and readable.
 - Prefer migrations over hidden format changes.
 - Add smoke coverage for new MCP tools.
+- Keep lint and coverage gates passing on Node.js 22 and 24.
 
 ## Pull Requests
 

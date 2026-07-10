@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { loadConfig } from "../dist/config.js";
+import { redactSecrets } from "../dist/redact.js";
+import { PathmarkStore } from "../dist/store.js";
 
 const DEFAULT_LEGACY_DIR = "~/.pathmark/legacy/codex";
 const DEFAULT_PATHMARK_DIR = "~/.pathmark/memory";
@@ -13,6 +16,7 @@ const pathmarkDir = expandHome(args["pathmark-dir"] ?? process.env.PATHMARK_STOR
 const memoryFile = path.join(pathmarkDir, "memory.jsonl");
 const dryRun = Boolean(args["dry-run"]);
 const noBackup = Boolean(args["no-backup"]);
+process.env.PATHMARK_STORE_DIR = pathmarkDir;
 
 const stats = {
   conclusionsRead: 0,
@@ -26,11 +30,11 @@ const stats = {
 };
 
 await assertDirectory(legacyDir, "Legacy memory store");
-await mkdir(pathmarkDir, { recursive: true });
-await ensureFile(memoryFile);
-
-const existingRecords = await readJsonl(memoryFile);
-const existingIds = new Set(existingRecords.records.map((record) => record.id));
+const store = new PathmarkStore(loadConfig());
+await store.ensureReady();
+const existingRecords = await store.all({ includeDeleted: true });
+const existingHealth = await store.health();
+const existingIds = new Set(existingRecords.map((record) => record.id));
 const imported = [];
 
 await importConclusions();
@@ -45,18 +49,13 @@ const newRecords = imported.filter((record) => {
   return true;
 });
 
-stats.written = newRecords.length;
+stats.written = dryRun ? newRecords.length : 0;
 
 if (!dryRun && newRecords.length > 0) {
-  if (!noBackup) {
-    const backupFile = path.join(pathmarkDir, `memory.jsonl.backup-${timestamp()}`);
-    await writeFile(backupFile, await readFile(memoryFile, "utf8"), "utf8");
-  }
-
-  const body = [...existingRecords.records, ...newRecords].map((record) => JSON.stringify(record)).join("\n");
-  const tmp = path.join(pathmarkDir, `.memory.import-legacy.${Date.now()}.tmp`);
-  await writeFile(tmp, body ? `${body}\n` : "", "utf8");
-  await rename(tmp, memoryFile);
+  const backupFile = noBackup ? undefined : path.join(pathmarkDir, `memory.jsonl.backup-${timestamp()}`);
+  const results = await store.addRecords(newRecords, { backupFile });
+  stats.written = results.filter((result) => result.created).length;
+  stats.duplicatesSkipped += results.filter((result) => !result.created).length;
 }
 
 console.log(
@@ -67,8 +66,8 @@ console.log(
       memoryFile,
       dryRun,
       ...stats,
-      existingPathmarkRecords: existingRecords.records.length,
-      parseErrorsInExistingPathmark: existingRecords.invalidLines,
+      existingPathmarkRecords: existingRecords.length,
+      parseErrorsInExistingPathmark: existingHealth.invalidRecordCount,
     },
     null,
     2,
@@ -90,8 +89,8 @@ async function importConclusions() {
       continue;
     }
 
-    const redacted = redact(text);
-    if (redacted.changed) stats.redactedRecords += 1;
+    const redacted = redactSecrets(text);
+    if (redacted.redacted) stats.redactedRecords += 1;
 
     imported.push({
       id: deterministicId(`legacy:conclusion:${raw.id ?? text}`),
@@ -126,8 +125,8 @@ async function importSessions() {
 
       const session = String(raw.session ?? path.basename(fileName, ".jsonl"));
       const role = normalizeRole(raw.role);
-      const redacted = redact(text);
-      if (redacted.changed) stats.redactedRecords += 1;
+      const redacted = redactSecrets(text);
+      if (redacted.redacted) stats.redactedRecords += 1;
 
       imported.push({
         id: deterministicId(`legacy:session:${session}:${index}:${role}:${text}`),
@@ -165,11 +164,6 @@ async function assertDirectory(dir, label) {
   if (!info?.isDirectory()) {
     throw new Error(`${label} not found or not a directory: ${dir}`);
   }
-}
-
-async function ensureFile(file) {
-  if (await exists(file)) return;
-  await writeFile(file, "", "utf8");
 }
 
 async function exists(file) {
@@ -221,21 +215,6 @@ function normalizeRole(value) {
     .replace(/[^a-z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40) || "unknown";
-}
-
-function redact(text) {
-  let changed = false;
-  const redacted = text
-    .replace(/\b([A-Z0-9_]*(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD|PRIVATE[_-]?KEY)[A-Z0-9_]*)\s*[:=]\s*(['"]?)([^\s'",}]{8,})\2/gi, (_match, name) => {
-      changed = true;
-      return `${name}=[REDACTED]`;
-    })
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/g, () => {
-      changed = true;
-      return "Bearer [REDACTED]";
-    });
-
-  return { text: redacted, changed };
 }
 
 function timestamp() {
