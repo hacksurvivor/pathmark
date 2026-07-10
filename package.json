@@ -1,6 +1,6 @@
 {
   "name": "pathmark",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "One local memory layer for Codex, Claude Code, opencode, Cursor, Gemini CLI, and MCP-capable coding agents.",
   "type": "module",
   "bin": {
@@ -18,9 +18,15 @@
     "build": "tsc",
     "dev": "tsx src/index.ts",
     "smoke": "node scripts/smoke.mjs",
-    "test": "npm run build && npm run smoke && npm run test:setup && npm run test:codex-adapter",
+    "test": "npm run build && npm run test:runtime && npm run lint",
+    "test:runtime": "node scripts/smoke.mjs && node scripts/test-setup.mjs && node scripts/test-codex-adapter.mjs && node scripts/test-hardening.mjs && node scripts/test-chat.mjs",
     "test:setup": "npm run build && node scripts/test-setup.mjs",
     "test:codex-adapter": "npm run build && node scripts/test-codex-adapter.mjs",
+    "test:hardening": "npm run build && node scripts/test-hardening.mjs",
+    "test:chat": "npm run build && node scripts/test-chat.mjs",
+    "lint": "eslint src scripts/*.mjs eslint.config.js",
+    "coverage": "npm run build && c8 --all --src src --exclude='scripts/**' --reporter=text --reporter=json-summary --check-coverage --lines=70 --functions=80 --branches=75 --statements=70 npm run test:runtime",
+    "release:verify": "node scripts/verify-release.mjs",
     "import:legacy": "node scripts/import-legacy-memory.mjs",
     "prepack": "npm run build"
   },
@@ -51,15 +57,20 @@
     "url": "https://github.com/hacksurvivor/pathmark/issues"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.19.0",
+    "c8": "^11.0.0",
+    "eslint": "^10.6.0",
+    "globals": "^17.7.0",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.63.0"
   }
 }

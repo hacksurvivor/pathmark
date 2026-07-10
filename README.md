@@ -24,6 +24,8 @@ Pathmark gives those tools one place to read and write memory:
 
 Pathmark stays provider-neutral. Codex gets one optional synthesis preset. The core server works with any MCP client that can use local tools.
 
+Pathmark requires Node.js 22.5 or newer.
+
 ## Cross-Harness Memory
 
 You switch tools during a coding session:
@@ -156,8 +158,8 @@ Add the same command to Cursor's MCP server settings:
 
 ```bash
 npm install
-npm run build
-npm run smoke
+npm test
+npm run coverage
 ```
 
 Run directly:
@@ -182,6 +184,7 @@ Pathmark target: ~/.pathmark/memory/memory.jsonl
 ```
 
 The importer creates a `memory.jsonl.backup-*` file before writing, uses deterministic ids so reruns skip duplicates, and redacts obvious `KEY=...`, `TOKEN=...`, `PASSWORD=...`, and `Bearer ...` values.
+It uses the same store lock as live MCP and Codex writers, so an import cannot overwrite records captured concurrently.
 
 Use a dry run first when migrating another machine:
 
@@ -277,7 +280,7 @@ PATHMARK_CODEX_MODEL=gpt-5.5 \
 pathmark
 ```
 
-This is useful for Codex users who have ChatGPT/Codex subscription auth locally but do not want to add an OpenAI API key.
+This is useful for Codex users who have persisted ChatGPT/Codex CLI auth locally but do not want to add an OpenAI API key. Pathmark sends the synthesis prompt through stdin, runs Codex in an empty temporary workspace, ignores project rules, and exposes only a minimal environment. Memory records are treated as untrusted data rather than executable instructions.
 
 ### `openai-compatible`
 
@@ -321,6 +324,8 @@ Pathmark stores newline-delimited JSON at:
 ~/.pathmark/memory/memory.jsonl
 ```
 
+`memory.jsonl` remains the canonical source of truth. Pathmark also maintains a derived, disposable search index at `memory.index.sqlite`. The index is rebuilt automatically when the JSONL file changes outside Pathmark, and it can be deleted safely while Pathmark is stopped.
+
 Each record is inspectable:
 
 ```json
@@ -336,6 +341,8 @@ Each record is inspectable:
 ```
 
 Deletes are soft deletes: the record gets a `deletedAt` timestamp.
+
+Malformed JSONL lines are skipped rather than crashing every tool. `pathmark codex status` reports their count as `invalidRecordCount` so the source file can be repaired deliberately.
 
 ## Roadmap
 

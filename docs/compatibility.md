@@ -2,6 +2,8 @@
 
 Pathmark runs as a stdio MCP server. If a host can launch `pathmark` and speak MCP over stdin/stdout, it can use the same memory file.
 
+Runtime requirement: Node.js 22.5 or newer. CI verifies current Node.js 22 and 24 releases.
+
 Use one memory store across Codex, Claude Code, opencode, Gemini CLI, OpenClaw, Hermes Agent, Cursor, and other MCP-capable clients.
 
 ## The Core Contract
@@ -134,6 +136,8 @@ PATHMARK_SYNTHESIS_PROVIDER=codex
 PATHMARK_CODEX_COMMAND=codex
 PATHMARK_CODEX_MODEL=gpt-5.5
 ```
+
+Use persisted Codex CLI auth. Pathmark deliberately does not forward arbitrary environment secrets such as API keys into the isolated synthesis process.
 
 ## Claude Code
 

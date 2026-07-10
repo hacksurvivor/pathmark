@@ -1333,18 +1333,18 @@ try {
   await installPathmarkMcp(legacyPathmarkConfigPath);
   const migratedPathmarkConfig = await readFile(legacyPathmarkConfigPath, "utf8");
   assert.equal(tomlTableHeaderCount(migratedPathmarkConfig, "mcp_servers.pathmark"), 1);
-  assert.equal(tomlTableHeaderCount(migratedPathmarkConfig, "mcp_servers.pathmark.env"), 0);
-  assert.equal(migratedPathmarkConfig.includes("# >>> pathmark MCP >>>"), true);
-  assert.equal(migratedPathmarkConfig.includes(`PATHMARK_STORE_DIR = ${JSON.stringify(installerStoreDir)}`), true);
-  assert.equal(migratedPathmarkConfig.includes('PATHMARK_STORE_DIR = "/home/user/.pathmark/memory"'), false);
+  assert.equal(tomlTableHeaderCount(migratedPathmarkConfig, "mcp_servers.pathmark.env"), 1);
+  assert.equal(migratedPathmarkConfig.includes("# >>> pathmark MCP >>>"), false);
+  assert.equal(migratedPathmarkConfig.includes('PATHMARK_STORE_DIR = "/home/user/.pathmark/memory"'), true);
   assert.equal(migratedPathmarkConfig.includes("[mcp_servers.other]"), true);
   assert.equal(migratedPathmarkConfig.includes("[mcp_servers.other.env]"), true);
   assert.equal(migratedPathmarkConfig.includes('[projects."/tmp/pathmark-kept"]'), true);
+  assert.equal((await readdir(codexHomeDir)).some((name) => name.startsWith("legacy-pathmark-config.toml.backup-")), true);
 
   await removePathmarkMcp(legacyPathmarkConfigPath);
   const removedMigratedPathmarkConfig = await readFile(legacyPathmarkConfigPath, "utf8");
-  assert.equal(tomlTableHeaderCount(removedMigratedPathmarkConfig, "mcp_servers.pathmark"), 0);
-  assert.equal(tomlTableHeaderCount(removedMigratedPathmarkConfig, "mcp_servers.pathmark.env"), 0);
+  assert.equal(tomlTableHeaderCount(removedMigratedPathmarkConfig, "mcp_servers.pathmark"), 1);
+  assert.equal(tomlTableHeaderCount(removedMigratedPathmarkConfig, "mcp_servers.pathmark.env"), 1);
   assert.equal(removedMigratedPathmarkConfig.includes("[mcp_servers.other]"), true);
   assert.equal(removedMigratedPathmarkConfig.includes("[mcp_servers.other.env]"), true);
   assert.equal(removedMigratedPathmarkConfig.includes('[projects."/tmp/pathmark-kept"]'), true);

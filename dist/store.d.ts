@@ -1,6 +1,15 @@
 import type { PathmarkConfig, PathmarkRecord, PathmarkRecordDraft, PathmarkRecordKind, SearchResult } from "./types.js";
+interface StoreHealth {
+    indexFile: string;
+    invalidRecordCount: number;
+}
+interface AddRecordsOptions {
+    backupFile?: string;
+}
 export declare class PathmarkStore {
     private readonly config;
+    private db?;
+    private syncPromise?;
     constructor(config: PathmarkConfig);
     ensureReady(): Promise<void>;
     add(input: PathmarkRecordDraft): Promise<PathmarkRecord>;
@@ -8,7 +17,7 @@ export declare class PathmarkStore {
         record: PathmarkRecord;
         created: boolean;
     }>;
-    addRecords(inputs: PathmarkRecordDraft[]): Promise<{
+    addRecords(inputs: PathmarkRecordDraft[], options?: AddRecordsOptions): Promise<{
         record: PathmarkRecord;
         created: boolean;
     }[]>;
@@ -17,6 +26,11 @@ export declare class PathmarkStore {
         kind?: PathmarkRecordKind;
     }): Promise<PathmarkRecord[]>;
     count(): Promise<number>;
+    recordsWithTags(tags: string[], options?: {
+        kind?: PathmarkRecordKind;
+        limit?: number;
+    }): Promise<PathmarkRecord[]>;
+    health(): Promise<StoreHealth>;
     delete(id: string): Promise<PathmarkRecord | undefined>;
     search(input: {
         query: string;
@@ -24,9 +38,10 @@ export declare class PathmarkStore {
         tags?: string[];
         kind?: PathmarkRecordKind;
     }): Promise<SearchResult[]>;
-    private readRecords;
-    private append;
+    private get indexFile();
+    private database;
     private appendMany;
-    private rewrite;
+    private rewriteRecord;
     private withWriteLock;
 }
+export {};

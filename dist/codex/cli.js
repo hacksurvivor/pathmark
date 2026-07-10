@@ -56,7 +56,12 @@ async function runHook(command) {
 async function printStatus() {
     const config = loadConfig();
     const store = new PathmarkStore(config);
-    const [hooks, mcp, recordCount] = await Promise.all([hookStatus(), pathmarkMcpStatus(), store.count()]);
+    const [hooks, mcp, recordCount, health] = await Promise.all([
+        hookStatus(),
+        pathmarkMcpStatus(),
+        store.count(),
+        store.health(),
+    ]);
     console.log(JSON.stringify({
         pathmarkHooksInstalled: hooks.pathmark,
         pathmarkMcpRegistered: mcp.installed,
@@ -65,6 +70,8 @@ async function printStatus() {
         storeDir: config.storeDir,
         memoryFile: config.memoryFile,
         recordCount,
+        invalidRecordCount: health.invalidRecordCount,
+        indexFile: health.indexFile,
     }, null, 2));
 }
 async function readHookInput() {

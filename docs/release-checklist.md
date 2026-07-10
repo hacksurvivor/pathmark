@@ -1,61 +1,84 @@
 # Release Checklist
 
-Use this before tagging or announcing a Pathmark release.
+Use this before tagging or announcing a Pathmark release. npm publishing is performed only by the tag-triggered trusted-publishing workflow.
 
-## Local Verification
+## Local verification
 
 ```bash
 npm ci
 npm test
+npm run coverage
+npm audit
 npm pack --dry-run
 ```
 
-Confirm the tarball includes:
+Confirm the tarball includes the CLI, MCP server, Codex adapter, and importer, but excludes local memory, indexes, coverage output, and planning files.
 
-- `dist/index.js`
-- `dist/setup.js`
-- `dist/codex/cli.js`
-- `dist/codex/capture.js`
-- `dist/codex/hooks.js`
+## Version metadata
 
-Confirm the tarball does not include local memory files, local planning docs, or the README hero image. The hero image lives in the GitHub repo and is referenced from the README by URL.
+```bash
+VERSION=$(node -p 'require("./package.json").version')
+npm run release:verify -- --tag="v$VERSION"
+git status --short
+```
 
-## Live Codex Verification
+The package version, MCP server version, tag, and `docs/releases/v$VERSION.md` must match. Release from a clean commit on `main`.
+
+## Live Codex verification
 
 ```bash
 pathmark codex status
 ```
 
-Expected:
+Expected fields:
 
 ```json
 {
   "pathmarkHooksInstalled": true,
   "pathmarkMcpRegistered": true,
-  "legacyHooksPresent": false
+  "legacyHooksPresent": false,
+  "invalidRecordCount": 0
 }
 ```
 
-Confirm migrated memory remains present:
+Confirm the canonical store and derived index are present:
 
 ```bash
-test -d ~/.pathmark/memory
-wc -l ~/.pathmark/memory/memory.jsonl
+test -f ~/.pathmark/memory/memory.jsonl
+test -f ~/.pathmark/memory/memory.index.sqlite
 ```
 
-## GitHub Release
+## GitHub and npm release
+
+The repository must have:
+
+- protected `main` with required CI checks;
+- protected `v*` tags;
+- an `npm` deployment environment for the publish job;
+- npm trusted publishing restricted to `.github/workflows/publish.yml`;
+- traditional npm publish tokens disabled where account policy permits.
+
+Create and push the matching tag. The tag starts the publish workflow:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
-gh release create v0.1.0 --title "Pathmark v0.1.0" --notes-file docs/releases/v0.1.0.md
+VERSION=$(node -p 'require("./package.json").version')
+git tag -s "v$VERSION" -m "Pathmark v$VERSION"
+git push origin "v$VERSION"
+gh run watch --exit-status
 ```
 
-## npm Release
-
-The `pathmark` npm package name was available on 2026-06-29, but publishing requires npm auth.
+After the publish workflow succeeds, create the GitHub release from the committed notes:
 
 ```bash
-npm whoami
-npm publish --access public
+gh release create "v$VERSION" \
+  --title "Pathmark v$VERSION" \
+  --notes-file "docs/releases/v$VERSION.md" \
+  --verify-tag
+```
+
+Final verification:
+
+```bash
+npm view pathmark version dist-tags.latest gitHead dist.attestations --json
+gh release view "v$VERSION"
 ```

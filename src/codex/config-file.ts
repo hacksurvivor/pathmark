@@ -1,11 +1,10 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { codexConfigPath, pathmarkStoreDir } from "./paths.js";
 
 const PATHMARK_BLOCK_START = "# >>> pathmark MCP >>>";
 const PATHMARK_BLOCK_END = "# <<< pathmark MCP <<<";
 const PATHMARK_BLOCK_RE = /(?:^|\n)# >>> pathmark MCP >>>\n[\s\S]*?\n# <<< pathmark MCP <<<(?:\n|$)/g;
-const TOML_TABLE_RE = /^\s*\[+.*\]+\s*(?:#.*)?$/;
 const PATHMARK_MCP_TABLE_RE = /^\s*\[\s*mcp_servers\s*\.\s*pathmark(?:\s*\.\s*env)?\s*\]\s*(?:#.*)?$/;
 
 export interface PathmarkMcpStatus {
@@ -15,6 +14,12 @@ export interface PathmarkMcpStatus {
 
 export async function installPathmarkMcp(configPath = codexConfigPath()): Promise<void> {
   const current = await readText(configPath);
+  await backupConfigFile(configPath);
+  const enabled = enableHooksFeature(current);
+  if (hasUnmanagedPathmarkTable(enabled)) {
+    await writeText(configPath, enabled);
+    return;
+  }
   const block = [
     PATHMARK_BLOCK_START,
     "[mcp_servers.pathmark]",
@@ -22,12 +27,13 @@ export async function installPathmarkMcp(configPath = codexConfigPath()): Promis
     `env = { PATHMARK_STORE_DIR = ${tomlString(pathmarkStoreDir())}, PATHMARK_SYNTHESIS_PROVIDER = "client" }`,
     PATHMARK_BLOCK_END,
   ].join("\n");
-  const base = stripPathmarkMcpTables(stripPathmarkBlock(enableHooksFeature(current))).trimEnd();
+  const base = stripPathmarkBlock(enabled).trimEnd();
   await writeText(configPath, `${base ? `${base}\n\n` : ""}${block}\n`);
 }
 
 export async function removePathmarkMcp(configPath = codexConfigPath()): Promise<void> {
-  const next = stripPathmarkMcpTables(stripPathmarkBlock(await readText(configPath))).trimEnd();
+  await backupConfigFile(configPath);
+  const next = stripPathmarkBlock(await readText(configPath)).trimEnd();
   await writeText(configPath, next ? `${next}\n` : "");
 }
 
@@ -65,7 +71,9 @@ export function enableHooksFeature(content: string): string {
 
 function pathmarkMcpStatusFromContent(content: string): PathmarkMcpStatus {
   return {
-    installed: content.includes(PATHMARK_BLOCK_START) && content.includes(PATHMARK_BLOCK_END),
+    installed:
+      (content.includes(PATHMARK_BLOCK_START) && content.includes(PATHMARK_BLOCK_END)) ||
+      hasUnmanagedPathmarkTable(content),
     hooksFeatureEnabled: /^\s*hooks\s*=\s*true\s*$/m.test(featuresTable(content)),
   };
 }
@@ -74,17 +82,12 @@ function stripPathmarkBlock(content: string): string {
   return content.replace(PATHMARK_BLOCK_RE, "\n").replace(/\n{3,}/g, "\n\n");
 }
 
-function stripPathmarkMcpTables(content: string): string {
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
-  const kept: string[] = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    if (!PATHMARK_MCP_TABLE_RE.test(lines[index])) {
-      kept.push(lines[index]);
-      continue;
-    }
-    while (index + 1 < lines.length && !TOML_TABLE_RE.test(lines[index + 1])) index += 1;
-  }
-  return kept.join("\n").replace(/\n{3,}/g, "\n\n");
+function hasUnmanagedPathmarkTable(content: string): boolean {
+  const unmanaged = stripPathmarkBlock(content);
+  return unmanaged
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .some((line) => PATHMARK_MCP_TABLE_RE.test(line));
 }
 
 function featuresTable(content: string): string {
@@ -105,6 +108,14 @@ async function readText(file: string): Promise<string> {
 async function writeText(file: string, text: string): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, text, "utf8");
+}
+
+async function backupConfigFile(file: string): Promise<void> {
+  try {
+    await copyFile(file, `${file}.backup-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
 }
 
 function tomlString(value: string): string {
