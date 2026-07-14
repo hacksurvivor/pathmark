@@ -8,5 +8,56 @@
         "PATHMARK_SYNTHESIS_PROVIDER": "client"
       }
     }
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "name": "pathmark-session-start",
+            "type": "command",
+            "command": "pathmark hook session-start",
+            "timeout": 30000
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "hooks": [
+          {
+            "name": "pathmark-before-agent",
+            "type": "command",
+            "command": "pathmark hook before-agent",
+            "timeout": 20000
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "name": "pathmark-after-tool",
+            "type": "command",
+            "command": "pathmark hook after-tool",
+            "timeout": 10000
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "hooks": [
+          {
+            "name": "pathmark-after-agent",
+            "type": "command",
+            "command": "pathmark hook after-agent",
+            "timeout": 20000
+          }
+        ]
+      }
+    ]
   }
 }

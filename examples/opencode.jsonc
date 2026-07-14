@@ -11,3 +11,6 @@
     }
   }
 }
+
+// Import an exported opencode transcript when automatic plugin hooks are not configured:
+// pathmark ingest --client=opencode --namespace=my-project < transcript.json

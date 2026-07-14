@@ -24,6 +24,13 @@ export function publicConfig(config) {
         maxSearchResults: config.maxSearchResults,
         codexProactiveRecall: config.codexProactiveRecall,
         codexVisibleRecall: config.codexVisibleRecall,
+        defaultNamespace: config.defaultNamespace ?? "unscoped",
+        redactMcpWrites: config.redactMcpWrites,
+        retentionDays: config.retentionDays,
+        rerankCommand: config.rerankCommand ? "configured" : "not_configured",
+        hybridCandidateLimit: config.hybridCandidateLimit,
+        retrievalTimeoutMs: config.retrievalTimeoutMs,
+        exportEncryptionKey: config.exportEncryptionKey ? "set" : "missing",
     };
 }
 export function summarizeRecords(records) {

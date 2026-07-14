@@ -4,15 +4,29 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { tokenizeSearchText } from "./tokenize.js";
-import type { PathmarkConfig, PathmarkRecord, PathmarkRecordDraft, PathmarkRecordKind, SearchResult } from "./types.js";
+import { rerankWithCommand } from "./retrieval.js";
+import { encryptPortableExport } from "./portable.js";
+import type {
+  PathmarkConfig,
+  PathmarkRecord,
+  PathmarkRecordDraft,
+  PathmarkRecordKind,
+  PathmarkRecordVersion,
+  SearchResult,
+  StoreDiagnosis,
+  StoreMaintenanceResult,
+} from "./types.js";
 
 const DEFAULT_LOCK_RETRY_MS = 10;
 const DEFAULT_LOCK_TIMEOUT_MS = 5000;
+const DEFAULT_INDEX_LOCK_TIMEOUT_MS = 120000;
 const DEFAULT_STALE_LOCK_MS = 10 * 60 * 1000;
 const DEFAULT_NO_OWNER_STALE_LOCK_MS = 5000;
 const LOCK_OWNER_FILE = "owner.json";
+const WRITE_LOCK_DIR = ".memory.lock";
+const INDEX_LOCK_DIR = ".memory.index.lock";
 const INDEX_FILE = "memory.index.sqlite";
-const INDEX_SCHEMA_VERSION = "2";
+const INDEX_SCHEMA_VERSION = "3";
 const SEARCH_CANDIDATE_LIMIT = 2000;
 
 interface LockHandle {
@@ -36,8 +50,11 @@ interface IndexedRow {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  expires_at: string | null;
   priority: number;
   tags_key: string;
+  content_hash: string;
+  record_json: string;
 }
 
 interface StoreHealth {
@@ -47,6 +64,23 @@ interface StoreHealth {
 
 interface AddRecordsOptions {
   backupFile?: string;
+  dedupe?: boolean;
+}
+
+export interface PurgeOptions {
+  id?: string;
+  tags?: string[];
+  namespace?: string;
+  source?: string;
+  before?: string;
+  dryRun?: boolean;
+}
+
+export interface CompactOptions {
+  dedupe?: boolean;
+  dropDeleted?: boolean;
+  retentionDays?: number;
+  dryRun?: boolean;
 }
 
 export class PathmarkStore {
@@ -60,13 +94,13 @@ export class PathmarkStore {
     await appendFile(this.config.memoryFile, "", "utf8");
   }
 
-  async add(input: PathmarkRecordDraft): Promise<PathmarkRecord> {
-    const { record } = await this.addRecord(input);
+  async add(input: PathmarkRecordDraft, options: AddRecordsOptions = {}): Promise<PathmarkRecord> {
+    const { record } = await this.addRecord(input, options);
     return record;
   }
 
-  async addRecord(input: PathmarkRecordDraft): Promise<{ record: PathmarkRecord; created: boolean }> {
-    const [result] = await this.addRecords([input]);
+  async addRecord(input: PathmarkRecordDraft, options: AddRecordsOptions = {}): Promise<{ record: PathmarkRecord; created: boolean }> {
+    const [result] = await this.addRecords([input], options);
     return result;
   }
 
@@ -90,9 +124,13 @@ export class PathmarkStore {
       }
 
       const findRecord = db.prepare("SELECT * FROM records WHERE id = ?");
+      const findDuplicate = options.dedupe
+        ? db.prepare("SELECT * FROM records WHERE content_hash = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1")
+        : undefined;
       const results: { record: PathmarkRecord; created: boolean }[] = [];
       const createdRecords: PathmarkRecord[] = [];
       const pending = new Map<string, PathmarkRecord>();
+      const pendingHashes = new Map<string, PathmarkRecord>();
 
       for (const { input, normalizedText } of drafts) {
         const id = input.id?.trim() || randomUUID();
@@ -115,7 +153,23 @@ export class PathmarkStore {
           source: input.source?.trim() || "mcp",
           createdAt: input.createdAt ?? now,
           updatedAt: input.updatedAt ?? input.createdAt ?? now,
+          ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+          ...(input.supersedes ? { supersedes: input.supersedes } : {}),
         };
+        if (findDuplicate) {
+          const hash = contentHash(record);
+          const pendingDuplicate = pendingHashes.get(hash);
+          if (pendingDuplicate) {
+            results.push({ record: pendingDuplicate, created: false });
+            continue;
+          }
+          const duplicate = findDuplicate.get(hash) as IndexedRow | undefined;
+          if (duplicate) {
+            results.push({ record: rowToRecord(duplicate), created: false });
+            continue;
+          }
+          pendingHashes.set(hash, record);
+        }
         pending.set(id, record);
         createdRecords.push(record);
         results.push({ record, created: true });
@@ -134,7 +188,11 @@ export class PathmarkStore {
     const db = await this.database();
     const clauses: string[] = [];
     const parameters: Array<string | number> = [];
-    if (!options.includeDeleted) clauses.push("deleted_at IS NULL");
+    if (!options.includeDeleted) {
+      clauses.push("deleted_at IS NULL");
+      clauses.push("(expires_at IS NULL OR expires_at > ?)");
+      parameters.push(new Date().toISOString());
+    }
     if (options.kind) {
       clauses.push("kind = ?");
       parameters.push(options.kind);
@@ -156,8 +214,8 @@ export class PathmarkStore {
     const { sql: filterSql, parameters } = recordFilters({ tagFilter, kind: options.kind });
     const limit = Math.max(1, Math.min(options.limit ?? 5000, 10_000));
     const rows = db
-      .prepare(`SELECT records.* FROM records WHERE deleted_at IS NULL${filterSql} ORDER BY created_at DESC LIMIT ?`)
-      .all(...parameters, limit) as unknown as IndexedRow[];
+      .prepare(`SELECT records.* FROM records WHERE deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)${filterSql} ORDER BY created_at DESC LIMIT ?`)
+      .all(new Date().toISOString(), ...parameters, limit) as unknown as IndexedRow[];
     return rows.map(rowToRecord);
   }
 
@@ -186,6 +244,145 @@ export class PathmarkStore {
     });
   }
 
+  async get(id: string, options: { includeDeleted?: boolean } = {}): Promise<PathmarkRecord | undefined> {
+    const db = await this.database();
+    const row = db.prepare(`SELECT * FROM records WHERE id = ?${options.includeDeleted ? "" : " AND deleted_at IS NULL"}`).get(id) as
+      | IndexedRow
+      | undefined;
+    return row ? rowToRecord(row) : undefined;
+  }
+
+  async update(
+    id: string,
+    patch: { text?: string; tags?: string[]; source?: string; expiresAt?: string | null },
+  ): Promise<PathmarkRecord | undefined> {
+    await this.ensureReady();
+    return this.withWriteLock(async () => {
+      const db = await this.database();
+      const row = db.prepare("SELECT * FROM records WHERE id = ? AND deleted_at IS NULL").get(id) as IndexedRow | undefined;
+      if (!row) return undefined;
+      const existing = rowToRecord(row);
+      const text = patch.text === undefined ? existing.text : patch.text.trim();
+      if (!text) throw new Error("text is required");
+      const previous: PathmarkRecordVersion = {
+        text: existing.text,
+        tags: existing.tags,
+        source: existing.source,
+        updatedAt: existing.updatedAt,
+      };
+      const updated: PathmarkRecord = {
+        ...existing,
+        text,
+        tags: patch.tags === undefined ? existing.tags : normalizeTags(patch.tags),
+        source: patch.source?.trim() || existing.source,
+        updatedAt: new Date().toISOString(),
+        history: [...(existing.history ?? []), previous].slice(-50),
+      };
+      if (patch.expiresAt === null) delete updated.expiresAt;
+      else if (patch.expiresAt !== undefined) updated.expiresAt = patch.expiresAt;
+      await this.rewriteRecords(new Map([[id, updated]]));
+      indexRecords(db, [updated]);
+      await updateIndexMetadata(db, this.config.memoryFile, currentInvalidRecordCount(db));
+      return updated;
+    });
+  }
+
+  async supersede(id: string, input: PathmarkRecordDraft): Promise<PathmarkRecord | undefined> {
+    await this.ensureReady();
+    return this.withWriteLock(async () => {
+      const db = await this.database();
+      const row = db.prepare("SELECT * FROM records WHERE id = ? AND deleted_at IS NULL").get(id) as IndexedRow | undefined;
+      if (!row) return undefined;
+      const existing = rowToRecord(row);
+      const now = new Date().toISOString();
+      const replacement: PathmarkRecord = {
+        id: input.id?.trim() || randomUUID(),
+        kind: input.kind,
+        text: input.text.trim(),
+        tags: normalizeTags(input.tags ?? existing.tags),
+        source: input.source?.trim() || existing.source,
+        createdAt: input.createdAt ?? now,
+        updatedAt: input.updatedAt ?? now,
+        supersedes: id,
+        ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+      };
+      if (!replacement.text) throw new Error("text is required");
+      const superseded: PathmarkRecord = { ...existing, supersededBy: replacement.id, deletedAt: now, updatedAt: now };
+      await this.rewriteRecords(new Map([[id, superseded]]), [replacement]);
+      indexRecords(db, [superseded, replacement]);
+      await updateIndexMetadata(db, this.config.memoryFile, currentInvalidRecordCount(db));
+      return replacement;
+    });
+  }
+
+  async diagnose(): Promise<StoreDiagnosis> {
+    const [records, health] = await Promise.all([this.all({ includeDeleted: true }), this.health()]);
+    return diagnoseRecords(records, health.invalidRecordCount, health.indexFile);
+  }
+
+  async purge(options: PurgeOptions): Promise<StoreMaintenanceResult> {
+    if (!hasPurgeSelector(options)) throw new Error("Hard purge requires id, tags, namespace, source, or before");
+    await this.ensureReady();
+    return this.withWriteLock(async () => {
+      const raw = await readFile(this.config.memoryFile, "utf8");
+      const parsed = parseJsonl(raw);
+      const matches = parsed.records.filter((record) => matchesPurge(record, options));
+      const kept = parsed.records.filter((record) => !matchesPurge(record, options));
+      if (options.dryRun !== false || matches.length === 0) {
+        return maintenanceResult(parsed.records, parsed.invalidRecordCount, this.indexFile, matches.length, false);
+      }
+      const backupFile = await this.createBackup();
+      await this.replaceCanonical(kept);
+      const db = await this.database();
+      replaceIndexRecords(db, kept);
+      await updateIndexMetadata(db, this.config.memoryFile, 0);
+      return maintenanceResult(kept, 0, this.indexFile, matches.length, true, backupFile);
+    });
+  }
+
+  async compact(options: CompactOptions = {}): Promise<StoreMaintenanceResult> {
+    await this.ensureReady();
+    return this.withWriteLock(async () => {
+      const raw = await readFile(this.config.memoryFile, "utf8");
+      const parsed = parseJsonl(raw);
+      const compacted = compactRecords(parsed.records, {
+        dedupe: options.dedupe !== false,
+        dropDeleted: options.dropDeleted !== false,
+        retentionDays: options.retentionDays ?? this.config.retentionDays,
+      });
+      const removed = parsed.records.length - compacted.length + parsed.invalidRecordCount;
+      if (options.dryRun !== false || removed === 0) {
+        return maintenanceResult(parsed.records, parsed.invalidRecordCount, this.indexFile, removed, false);
+      }
+      const backupFile = await this.createBackup();
+      await this.replaceCanonical(compacted);
+      const db = await this.database();
+      replaceIndexRecords(db, compacted);
+      await updateIndexMetadata(db, this.config.memoryFile, 0);
+      return maintenanceResult(compacted, 0, this.indexFile, removed, true, backupFile);
+    });
+  }
+
+  async backup(destination?: string): Promise<string> {
+    await this.ensureReady();
+    return this.withWriteLock(() => this.createBackup(destination));
+  }
+
+  async exportTo(
+    destination: string,
+    options: { tags?: string[]; namespace?: string; kind?: PathmarkRecordKind; includeDeleted?: boolean; encrypted?: boolean } = {},
+  ): Promise<{ file: string; recordCount: number }> {
+    const records = await this.all({ includeDeleted: options.includeDeleted, kind: options.kind });
+    const requiredTags = normalizeTags([...(options.tags ?? []), ...(options.namespace ? [namespaceTag(options.namespace)] : [])]);
+    const filtered = requiredTags.length === 0 ? records : records.filter((record) => requiredTags.every((tag) => record.tags.includes(tag)));
+    const file = path.resolve(destination);
+    await mkdir(path.dirname(file), { recursive: true });
+    const body = filtered.length > 0 ? `${filtered.map((record) => JSON.stringify(record)).join("\n")}\n` : "";
+    const output = options.encrypted ? await encryptPortableExport(body, this.config.exportEncryptionKey ?? "") : body;
+    await writeFile(file, output, "utf8");
+    return { file, recordCount: filtered.length };
+  }
+
   async search(input: {
     query: string;
     limit?: number;
@@ -200,8 +397,8 @@ export class PathmarkStore {
 
     if (queryTerms.length === 0) {
       const rows = db
-        .prepare(`SELECT records.* FROM records WHERE deleted_at IS NULL${filterSql} ORDER BY created_at DESC LIMIT ?`)
-        .all(...filterParameters, limit) as unknown as IndexedRow[];
+        .prepare(`SELECT records.* FROM records WHERE deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)${filterSql} ORDER BY created_at DESC LIMIT ?`)
+        .all(new Date().toISOString(), ...filterParameters, limit) as unknown as IndexedRow[];
       return rows.map((row) => ({ record: rowToRecord(row), score: 1, matchedTerms: [] }));
     }
 
@@ -212,17 +409,47 @@ export class PathmarkStore {
         `SELECT records.*, bm25(records_fts) AS fts_rank
          FROM records_fts
          JOIN records ON records.row_id = records_fts.rowid
-         WHERE records_fts MATCH ? AND records.deleted_at IS NULL${filterSql}
+         WHERE records_fts MATCH ? AND records.deleted_at IS NULL AND (records.expires_at IS NULL OR records.expires_at > ?)${filterSql}
          ORDER BY fts_rank ASC, records.priority DESC, records.created_at DESC
          LIMIT ?`,
       )
-      .all(match, ...filterParameters, candidateLimit) as unknown as Array<IndexedRow & { fts_rank: number }>;
+      .all(match, new Date().toISOString(), ...filterParameters, candidateLimit) as unknown as Array<IndexedRow & { fts_rank: number }>;
 
-    return rows
+    const lexicalPool = rows
       .map((row) => scoreRecord(rowToRecord(row), queryTerms))
       .filter((result) => result.matchedTerms.length > 0)
       .sort((a, b) => b.score - a.score || b.record.createdAt.localeCompare(a.record.createdAt))
-      .slice(0, limit);
+      .slice(0, this.config.rerankCommand ? Math.max(limit, this.config.hybridCandidateLimit) : limit);
+    if (!this.config.rerankCommand) return lexicalPool;
+
+    const broadRows = db
+      .prepare(
+        `SELECT records.* FROM records
+         WHERE records.deleted_at IS NULL AND (records.expires_at IS NULL OR records.expires_at > ?)${filterSql}
+         ORDER BY records.priority DESC, records.updated_at DESC
+         LIMIT ?`,
+      )
+      .all(new Date().toISOString(), ...filterParameters, this.config.hybridCandidateLimit) as unknown as IndexedRow[];
+    const candidates = new Map<string, SearchResult>();
+    for (const result of lexicalPool) candidates.set(result.record.id, result);
+    for (const row of broadRows) {
+      const record = rowToRecord(row);
+      if (!candidates.has(record.id)) {
+        candidates.set(record.id, { record, score: scorePriority(record), matchedTerms: [], retrieval: "hybrid" });
+      }
+    }
+    try {
+      return (
+        await rerankWithCommand({
+          command: this.config.rerankCommand,
+          query: input.query,
+          candidates: [...candidates.values()],
+          timeoutMs: this.config.retrievalTimeoutMs,
+        })
+      ).slice(0, limit);
+    } catch {
+      return lexicalPool.slice(0, limit);
+    }
   }
 
   private get indexFile(): string {
@@ -231,13 +458,16 @@ export class PathmarkStore {
 
   private async database(): Promise<DatabaseSync> {
     await this.ensureReady();
-    if (!this.db) this.db = await openIndexDatabase(this.indexFile);
     if (!this.syncPromise) {
-      this.syncPromise = synchronizeIndex(this.db, this.config.memoryFile).finally(() => {
+      this.syncPromise = withDirectoryLock(this.config.storeDir, INDEX_LOCK_DIR, async () => {
+        if (!this.db) this.db = await openIndexDatabase(this.indexFile);
+        await synchronizeIndex(this.db, this.config.memoryFile);
+      }).finally(() => {
         this.syncPromise = undefined;
       });
     }
     await this.syncPromise;
+    if (!this.db) throw new Error("Pathmark index did not initialize");
     return this.db;
   }
 
@@ -247,12 +477,18 @@ export class PathmarkStore {
   }
 
   private async rewriteRecord(id: string, replacement: PathmarkRecord): Promise<void> {
+    await this.rewriteRecords(new Map([[id, replacement]]));
+  }
+
+  private async rewriteRecords(replacements: Map<string, PathmarkRecord>, additions: PathmarkRecord[] = []): Promise<void> {
     const raw = await readFile(this.config.memoryFile, "utf8");
     const lines = raw.split("\n").map((line) => {
       if (!line.trim()) return line;
       const parsed = parseRecordLine(line);
-      return parsed?.id === id ? JSON.stringify(replacement) : line;
+      return parsed && replacements.has(parsed.id) ? JSON.stringify(replacements.get(parsed.id)) : line;
     });
+    while (lines.length > 0 && !lines.at(-1)?.trim()) lines.pop();
+    lines.push(...additions.map((record) => JSON.stringify(record)), "");
     const tmp = path.join(
       this.config.storeDir,
       `.memory.${createHash("sha256").update(String(Date.now())).digest("hex").slice(0, 8)}.tmp`,
@@ -261,44 +497,40 @@ export class PathmarkStore {
     await rename(tmp, this.config.memoryFile);
   }
 
+  private async replaceCanonical(records: PathmarkRecord[]): Promise<void> {
+    const tmp = path.join(this.config.storeDir, `.memory.${randomUUID()}.tmp`);
+    const body = records.length > 0 ? `${records.map((record) => JSON.stringify(record)).join("\n")}\n` : "";
+    await writeFile(tmp, body, "utf8");
+    await rename(tmp, this.config.memoryFile);
+  }
+
+  private async createBackup(destination?: string): Promise<string> {
+    const file = destination
+      ? path.resolve(destination)
+      : path.join(
+          this.config.storeDir,
+          `memory.jsonl.backup-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`,
+        );
+    await mkdir(path.dirname(file), { recursive: true });
+    await copyFile(this.config.memoryFile, file);
+    return file;
+  }
+
   private async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
-    await mkdir(this.config.storeDir, { recursive: true });
-    const lockDir = path.join(this.config.storeDir, ".memory.lock");
-    const startedAt = Date.now();
-    const lockTimeoutMs = envMs("PATHMARK_LOCK_TIMEOUT_MS", DEFAULT_LOCK_TIMEOUT_MS);
-    const lockRetryMs = envMs("PATHMARK_LOCK_RETRY_MS", DEFAULT_LOCK_RETRY_MS);
-    const staleLockMs = envMs("PATHMARK_STALE_LOCK_MS", DEFAULT_STALE_LOCK_MS);
-    const noOwnerStaleLockMs = envMs("PATHMARK_NO_OWNER_STALE_LOCK_MS", DEFAULT_NO_OWNER_STALE_LOCK_MS);
-    let lock: LockHandle | undefined;
-
-    while (true) {
-      try {
-        await mkdir(lockDir);
-        lock = await writeLockOwner(lockDir);
-        break;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        if (await removeStaleLock(lockDir, { staleLockMs, noOwnerStaleLockMs })) continue;
-        if (Date.now() - startedAt > lockTimeoutMs) throw new Error(`Timed out waiting for Pathmark store lock: ${lockDir}`);
-        await sleep(lockRetryMs);
-      }
-    }
-
-    try {
-      return await operation();
-    } finally {
-      if (lock) await releaseLock(lock);
-    }
+    return withDirectoryLock(this.config.storeDir, WRITE_LOCK_DIR, operation);
   }
 }
 
 async function openIndexDatabase(indexFile: string): Promise<DatabaseSync> {
   await mkdir(path.dirname(indexFile), { recursive: true });
+  let db: DatabaseSync | undefined;
   try {
-    const db = new (sqliteModule().DatabaseSync)(indexFile);
+    db = new (sqliteModule().DatabaseSync)(indexFile);
     initializeSchema(db);
     return db;
   } catch (error) {
+    db?.close();
+    if (!isCorruptSqliteError(error)) throw error;
     const suffix = new Date().toISOString().replace(/[:.]/g, "-");
     await rename(indexFile, `${indexFile}.corrupt-${suffix}`).catch(() => undefined);
     await rm(`${indexFile}-wal`, { force: true }).catch(() => undefined);
@@ -314,7 +546,7 @@ async function openIndexDatabase(indexFile: string): Promise<DatabaseSync> {
 }
 
 function initializeSchema(db: DatabaseSync): void {
-  db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+  db.exec("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
   db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
   const version = getMeta(db, "schema_version");
   if (version && version !== INDEX_SCHEMA_VERSION) {
@@ -331,18 +563,29 @@ function initializeSchema(db: DatabaseSync): void {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       deleted_at TEXT,
+      expires_at TEXT,
       priority INTEGER NOT NULL,
       tags_key TEXT NOT NULL,
-      search_tokens TEXT NOT NULL
+      search_tokens TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      record_json TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS records_created_at ON records(created_at DESC);
     CREATE INDEX IF NOT EXISTS records_kind_created_at ON records(kind, created_at DESC);
+    CREATE INDEX IF NOT EXISTS records_content_hash ON records(content_hash, updated_at DESC);
     CREATE VIRTUAL TABLE IF NOT EXISTS records_fts USING fts5(
       tokens,
       tokenize = 'unicode61 remove_diacritics 2'
     );
   `);
   setMeta(db, "schema_version", INDEX_SCHEMA_VERSION);
+}
+
+function isCorruptSqliteError(error: unknown): boolean {
+  const code = (error as { code?: unknown }).code;
+  if (code === "SQLITE_CORRUPT" || code === "SQLITE_NOTADB") return true;
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return message.includes("database disk image is malformed") || message.includes("file is not a database");
 }
 
 async function synchronizeIndex(db: DatabaseSync, memoryFile: string): Promise<void> {
@@ -388,12 +631,12 @@ function indexRecords(
   if (useTransaction) db.exec("BEGIN IMMEDIATE");
   try {
     const insert = db.prepare(`
-      INSERT INTO records (id, kind, text, tags_json, source, created_at, updated_at, deleted_at, priority, tags_key, search_tokens)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO records (id, kind, text, tags_json, source, created_at, updated_at, deleted_at, expires_at, priority, tags_key, search_tokens, content_hash, record_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const upsert = db.prepare(`
-      INSERT INTO records (id, kind, text, tags_json, source, created_at, updated_at, deleted_at, priority, tags_key, search_tokens)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO records (id, kind, text, tags_json, source, created_at, updated_at, deleted_at, expires_at, priority, tags_key, search_tokens, content_hash, record_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         kind = excluded.kind,
         text = excluded.text,
@@ -402,9 +645,12 @@ function indexRecords(
         created_at = excluded.created_at,
         updated_at = excluded.updated_at,
         deleted_at = excluded.deleted_at,
+        expires_at = excluded.expires_at,
         priority = excluded.priority,
         tags_key = excluded.tags_key,
-        search_tokens = excluded.search_tokens
+        search_tokens = excluded.search_tokens,
+        content_hash = excluded.content_hash,
+        record_json = excluded.record_json
       RETURNING row_id
     `);
     const clearFts = db.prepare("DELETE FROM records_fts WHERE rowid = ?");
@@ -421,9 +667,12 @@ function indexRecords(
         record.createdAt,
         record.updatedAt,
         record.deletedAt ?? null,
+        record.expiresAt ?? null,
         scorePriority(record),
         tagsKey(record.tags),
         searchTokens,
+        contentHash(record),
+        JSON.stringify(record),
       ] as const;
       let rowId: number;
       if (options.fresh) {
@@ -439,6 +688,106 @@ function indexRecords(
     if (useTransaction) db.exec("ROLLBACK");
     throw error;
   }
+}
+
+function replaceIndexRecords(db: DatabaseSync, records: PathmarkRecord[]): void {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec("DELETE FROM records_fts; DELETE FROM records;");
+    indexRecords(db, records, { transaction: false, fresh: true });
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function diagnoseRecords(records: PathmarkRecord[], invalidRecordCount: number, indexFile: string): StoreDiagnosis {
+  const now = Date.now();
+  const active = records.filter((record) => !record.deletedAt && (!record.expiresAt || Date.parse(record.expiresAt) > now));
+  const fingerprints = new Set<string>();
+  let duplicateCount = 0;
+  for (const record of active) {
+    const fingerprint = contentHash(record);
+    if (fingerprints.has(fingerprint)) duplicateCount += 1;
+    else fingerprints.add(fingerprint);
+  }
+  return {
+    totalRecords: records.length,
+    activeRecords: active.length,
+    deletedRecords: records.filter((record) => Boolean(record.deletedAt)).length,
+    expiredRecords: records.filter((record) => Boolean(record.expiresAt && Date.parse(record.expiresAt) <= now)).length,
+    exactDuplicateRecords: duplicateCount,
+    conclusions: active.filter((record) => record.kind === "conclusion").length,
+    invalidRecordCount,
+    indexFile,
+  };
+}
+
+function maintenanceResult(
+  records: PathmarkRecord[],
+  invalidRecordCount: number,
+  indexFile: string,
+  removedRecords: number,
+  applied: boolean,
+  backupFile?: string,
+): StoreMaintenanceResult {
+  return {
+    ...diagnoseRecords(records, invalidRecordCount, indexFile),
+    applied,
+    removedRecords,
+    ...(backupFile ? { backupFile } : {}),
+  };
+}
+
+function compactRecords(
+  records: PathmarkRecord[],
+  options: { dedupe: boolean; dropDeleted: boolean; retentionDays: number },
+): PathmarkRecord[] {
+  const now = Date.now();
+  const retentionCutoff = options.retentionDays > 0 ? now - options.retentionDays * 24 * 60 * 60 * 1000 : undefined;
+  let candidates = records.filter((record) => {
+    if (options.dropDeleted && record.deletedAt) return false;
+    if (record.expiresAt && Date.parse(record.expiresAt) <= now) return false;
+    if (retentionCutoff && record.kind !== "conclusion" && Date.parse(record.updatedAt) < retentionCutoff) return false;
+    return true;
+  });
+  if (!options.dedupe) return candidates;
+
+  const counts = new Map<string, number>();
+  for (const record of candidates) counts.set(contentHash(record), (counts.get(contentHash(record)) ?? 0) + 1);
+  const seen = new Set<string>();
+  candidates = [...candidates]
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .filter((record) => {
+      const hash = contentHash(record);
+      if (seen.has(hash)) return false;
+      seen.add(hash);
+      const occurrences = counts.get(hash) ?? 1;
+      if (occurrences > 1) record.occurrences = Math.max(record.occurrences ?? 1, occurrences);
+      return true;
+    })
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return candidates;
+}
+
+function hasPurgeSelector(options: PurgeOptions): boolean {
+  return Boolean(options.id || options.tags?.length || options.namespace || options.source || options.before);
+}
+
+function matchesPurge(record: PathmarkRecord, options: PurgeOptions): boolean {
+  if (options.id && record.id !== options.id) return false;
+  const requiredTags = normalizeTags([...(options.tags ?? []), ...(options.namespace ? [namespaceTag(options.namespace)] : [])]);
+  if (requiredTags.some((tag) => !record.tags.includes(tag))) return false;
+  if (options.source && record.source !== options.source) return false;
+  if (options.before && record.updatedAt >= options.before) return false;
+  return true;
+}
+
+export function namespaceTag(namespace: string): string {
+  const normalized = namespace.trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!normalized) throw new Error("namespace is required");
+  return `namespace:${normalized}`;
 }
 
 function recordFilters(input: { tagFilter: string[]; kind?: PathmarkRecordKind }): {
@@ -481,6 +830,11 @@ function parseRecordLine(line: string): PathmarkRecord | undefined {
     if (typeof value.source !== "string") return undefined;
     if (typeof value.createdAt !== "string" || typeof value.updatedAt !== "string") return undefined;
     if (value.deletedAt !== undefined && typeof value.deletedAt !== "string") return undefined;
+    if (value.expiresAt !== undefined && typeof value.expiresAt !== "string") return undefined;
+    if (value.supersedes !== undefined && typeof value.supersedes !== "string") return undefined;
+    if (value.supersededBy !== undefined && typeof value.supersededBy !== "string") return undefined;
+    if (value.occurrences !== undefined && (!Number.isInteger(value.occurrences) || Number(value.occurrences) < 1)) return undefined;
+    if (value.history !== undefined && !isRecordHistory(value.history)) return undefined;
     return {
       id: value.id,
       kind: value.kind,
@@ -490,6 +844,11 @@ function parseRecordLine(line: string): PathmarkRecord | undefined {
       createdAt: value.createdAt,
       updatedAt: value.updatedAt,
       ...(value.deletedAt ? { deletedAt: value.deletedAt } : {}),
+      ...(value.expiresAt ? { expiresAt: value.expiresAt } : {}),
+      ...(value.supersedes ? { supersedes: value.supersedes } : {}),
+      ...(value.supersededBy ? { supersededBy: value.supersededBy } : {}),
+      ...(typeof value.occurrences === "number" ? { occurrences: value.occurrences } : {}),
+      ...(Array.isArray(value.history) ? { history: value.history as PathmarkRecordVersion[] } : {}),
     };
   } catch {
     return undefined;
@@ -497,6 +856,12 @@ function parseRecordLine(line: string): PathmarkRecord | undefined {
 }
 
 function rowToRecord(row: IndexedRow): PathmarkRecord {
+  try {
+    const parsed = parseRecordLine(row.record_json);
+    if (parsed) return parsed;
+  } catch {
+    // Fall through to the legacy column representation.
+  }
   const tags = JSON.parse(row.tags_json) as unknown;
   return {
     id: row.id,
@@ -507,7 +872,23 @@ function rowToRecord(row: IndexedRow): PathmarkRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ...(row.deleted_at ? { deletedAt: row.deleted_at } : {}),
+    ...(row.expires_at ? { expiresAt: row.expires_at } : {}),
   };
+}
+
+function isRecordHistory(value: unknown): value is PathmarkRecordVersion[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (entry) =>
+        isRecord(entry) &&
+        typeof entry.text === "string" &&
+        Array.isArray(entry.tags) &&
+        entry.tags.every((tag) => typeof tag === "string") &&
+        typeof entry.source === "string" &&
+        typeof entry.updatedAt === "string",
+    )
+  );
 }
 
 function scoreRecord(record: PathmarkRecord, queryTerms: string[]): SearchResult {
@@ -520,7 +901,30 @@ function scoreRecord(record: PathmarkRecord, queryTerms: string[]): SearchResult
     record,
     score: matchedTerms.length + exactTextMatches * 2 + tagMatches * 3 + scorePriority(record),
     matchedTerms,
+    retrieval: "lexical",
   };
+}
+
+function contentHash(record: Pick<PathmarkRecord, "kind" | "text" | "tags">): string {
+  const scopeTags = record.tags.filter(
+    (tag) =>
+      !tag.startsWith("session:") &&
+      tag !== "immediate-prompt" &&
+      tag !== "codex-raw" &&
+      tag !== "codex-session" &&
+      tag !== "redacted",
+  );
+  return createHash("sha256")
+    .update(record.kind)
+    .update("\0")
+    .update(normalizeContent(record.text))
+    .update("\0")
+    .update(scopeTags.sort().join("\0"))
+    .digest("hex");
+}
+
+function normalizeContent(text: string): string {
+  return text.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function scorePriority(record: PathmarkRecord): number {
@@ -585,6 +989,42 @@ function sqliteModule(): typeof import("node:sqlite") {
     process.emitWarning = originalEmitWarning;
   }
   return cachedSqlite;
+}
+
+async function withDirectoryLock<T>(storeDir: string, lockName: string, operation: () => Promise<T>): Promise<T> {
+  await mkdir(storeDir, { recursive: true });
+  const lockDir = path.join(storeDir, lockName);
+  const startedAt = Date.now();
+  const lockTimeoutMs =
+    lockName === INDEX_LOCK_DIR
+      ? envMs("PATHMARK_INDEX_LOCK_TIMEOUT_MS", DEFAULT_INDEX_LOCK_TIMEOUT_MS)
+      : envMs("PATHMARK_LOCK_TIMEOUT_MS", DEFAULT_LOCK_TIMEOUT_MS);
+  const lockRetryMs = envMs("PATHMARK_LOCK_RETRY_MS", DEFAULT_LOCK_RETRY_MS);
+  const staleLockMs = envMs("PATHMARK_STALE_LOCK_MS", DEFAULT_STALE_LOCK_MS);
+  const noOwnerStaleLockMs = envMs("PATHMARK_NO_OWNER_STALE_LOCK_MS", DEFAULT_NO_OWNER_STALE_LOCK_MS);
+  let lock: LockHandle | undefined;
+
+  while (true) {
+    try {
+      await mkdir(lockDir);
+      lock = await writeLockOwner(lockDir);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (await removeStaleLock(lockDir, { staleLockMs, noOwnerStaleLockMs })) continue;
+      if (Date.now() - startedAt > lockTimeoutMs) {
+        const label = lockName === WRITE_LOCK_DIR ? "store lock" : "index lock";
+        throw new Error(`Timed out waiting for Pathmark ${label}: ${lockDir}`);
+      }
+      await sleep(lockRetryMs);
+    }
+  }
+
+  try {
+    return await operation();
+  } finally {
+    if (lock) await releaseLock(lock);
+  }
 }
 
 async function writeLockOwner(lockDir: string): Promise<LockHandle> {

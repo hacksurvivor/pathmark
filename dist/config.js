@@ -21,6 +21,10 @@ function envFlag(name, fallback) {
         return true;
     return fallback;
 }
+function envNonNegativeInt(name, fallback) {
+    const parsed = Number.parseInt(process.env[name] ?? "", 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
 export function loadConfig() {
     const storeDir = path.resolve(expandHome(envValue("PATHMARK_STORE_DIR", "~/.pathmark/memory")));
     return {
@@ -37,6 +41,13 @@ export function loadConfig() {
         maxSearchResults: Number.parseInt(process.env.PATHMARK_MAX_SEARCH_RESULTS ?? "12", 10),
         codexProactiveRecall: envFlag("PATHMARK_CODEX_PROACTIVE_RECALL", true),
         codexVisibleRecall: envFlag("PATHMARK_CODEX_VISIBLE_RECALL", true),
+        defaultNamespace: process.env.PATHMARK_NAMESPACE?.trim() || undefined,
+        redactMcpWrites: envFlag("PATHMARK_REDACT_MCP_WRITES", true),
+        retentionDays: envNonNegativeInt("PATHMARK_RETENTION_DAYS", 0),
+        rerankCommand: process.env.PATHMARK_RERANK_COMMAND?.trim() || undefined,
+        hybridCandidateLimit: Math.max(10, Math.min(envNonNegativeInt("PATHMARK_HYBRID_CANDIDATES", 500), 2_000)),
+        retrievalTimeoutMs: envNonNegativeInt("PATHMARK_RETRIEVAL_TIMEOUT_MS", 30_000),
+        exportEncryptionKey: process.env.PATHMARK_EXPORT_KEY,
     };
 }
 function synthesisProvider() {

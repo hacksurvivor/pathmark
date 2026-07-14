@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { prompt } from "../dist/codex/capture.js";
 import { installPathmarkMcp, pathmarkMcpStatus } from "../dist/codex/config-file.js";
 import { loadConfig } from "../dist/config.js";
 import { redactSecrets } from "../dist/redact.js";
+import { decryptPortableExport } from "../dist/portable.js";
 import { PathmarkStore } from "../dist/store.js";
 
 const temp = await mkdtemp(path.join(os.tmpdir(), "pathmark-hardening-"));
@@ -18,6 +19,10 @@ try {
   await testUnicodePromptRecall();
   await testCorruptJsonlRecovery();
   await testIndexedStore();
+  await testBusyIndexIsNotRenamedAsCorrupt();
+  await testLifecycleMaintenance();
+  await testHybridReranker();
+  await testEncryptedPortableExport();
   await testInstallerPreservesUserConfig();
   await testImporterUsesStoreLock();
   console.log("Hardening tests passed");
@@ -110,6 +115,132 @@ async function testIndexedStore() {
   assert.equal((await readdir(storeDir)).includes("memory.index.sqlite"), true);
 }
 
+async function testBusyIndexIsNotRenamedAsCorrupt() {
+  const storeDir = path.join(temp, "busy-index");
+  process.env.PATHMARK_STORE_DIR = storeDir;
+  const store = new PathmarkStore(loadConfig());
+  await store.add({ id: "busy-one", kind: "memory", text: "busy index record", source: "hardening-test" });
+  await store.search({ query: "busy index" });
+
+  const indexFile = path.join(storeDir, "memory.index.sqlite");
+  const locker = spawn(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `import { DatabaseSync } from "node:sqlite"; const db = new DatabaseSync(${JSON.stringify(indexFile)}); db.exec("BEGIN EXCLUSIVE"); console.log("ready"); setTimeout(() => { db.exec("ROLLBACK"); db.close(); }, 250);`,
+    ],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+  const lockerExit = waitForExit(locker);
+  await waitForOutput(locker, "ready");
+  const parallel = new PathmarkStore(loadConfig());
+  const results = await parallel.search({ query: "busy index" });
+  assert.equal(results.length, 1);
+  await lockerExit;
+  assert.equal((await readdir(storeDir)).some((name) => name.includes(".corrupt-")), false);
+}
+
+async function testLifecycleMaintenance() {
+  const storeDir = path.join(temp, "lifecycle");
+  process.env.PATHMARK_STORE_DIR = storeDir;
+  const store = new PathmarkStore(loadConfig());
+  const first = await store.addRecord(
+    { id: "lifecycle-one", kind: "memory", text: "Keep one exact memory", tags: ["namespace:test"], source: "hardening" },
+    { dedupe: true },
+  );
+  const duplicate = await store.addRecord(
+    { id: "lifecycle-two", kind: "memory", text: "Keep one exact memory", tags: ["namespace:test"], source: "other" },
+    { dedupe: true },
+  );
+  assert.equal(first.created, true);
+  assert.equal(duplicate.created, false);
+  assert.equal(duplicate.record.id, first.record.id);
+
+  const updated = await store.update(first.record.id, { text: "Updated exact memory" });
+  assert.equal(updated?.history?.[0]?.text, "Keep one exact memory");
+  const replacement = await store.supersede(first.record.id, {
+    kind: "conclusion",
+    text: "Current exact memory",
+    tags: ["namespace:test"],
+    source: "hardening",
+  });
+  assert.equal(replacement?.supersedes, first.record.id);
+  assert.equal((await store.get(first.record.id)) === undefined, true);
+
+  await store.add({ id: "expired", kind: "memory", text: "Expired record", source: "hardening", expiresAt: "2020-01-01T00:00:00.000Z" });
+  assert.equal((await store.search({ query: "Expired record" })).length, 0);
+  const preview = await store.compact({ dryRun: true });
+  assert.equal(preview.applied, false);
+  assert.equal(preview.removedRecords >= 2, true);
+  const compacted = await store.compact({ dryRun: false });
+  assert.equal(compacted.applied, true);
+  assert.equal(typeof compacted.backupFile, "string");
+  assert.equal(await fileExists(compacted.backupFile), true);
+
+  const purgePreview = await store.purge({ namespace: "test", dryRun: true });
+  assert.equal(purgePreview.applied, false);
+  const purged = await store.purge({ namespace: "test", dryRun: false });
+  assert.equal(purged.applied, true);
+  assert.equal((await store.all({ includeDeleted: true })).length, 0);
+}
+
+async function testHybridReranker() {
+  const storeDir = path.join(temp, "hybrid");
+  const reranker = path.join(temp, "fake-reranker.mjs");
+  await writeFile(
+    reranker,
+    [
+      "#!/usr/bin/env node",
+      'let input = "";',
+      "for await (const chunk of process.stdin) input += String(chunk);",
+      "const payload = JSON.parse(input);",
+      'const preferred = payload.candidates.find((candidate) => candidate.text.includes("PostgreSQL"));',
+      "console.log(JSON.stringify([preferred.id, ...payload.candidates.filter((candidate) => candidate.id !== preferred.id).map((candidate) => candidate.id)]));",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await chmod(reranker, 0o755);
+  const previousCommand = process.env.PATHMARK_RERANK_COMMAND;
+  try {
+    process.env.PATHMARK_STORE_DIR = storeDir;
+    process.env.PATHMARK_RERANK_COMMAND = reranker;
+    const store = new PathmarkStore(loadConfig());
+    await store.addRecords([
+      { id: "hybrid-postgres", kind: "conclusion", text: "Persistence uses PostgreSQL.", source: "hardening" },
+      { id: "hybrid-other", kind: "memory", text: "The interface uses dark colors.", source: "hardening" },
+    ]);
+    const results = await store.search({ query: "Which database engine did we choose?", limit: 1 });
+    assert.equal(results[0]?.record.id, "hybrid-postgres");
+    assert.equal(results[0]?.retrieval, "hybrid");
+  } finally {
+    if (previousCommand === undefined) delete process.env.PATHMARK_RERANK_COMMAND;
+    else process.env.PATHMARK_RERANK_COMMAND = previousCommand;
+  }
+}
+
+async function testEncryptedPortableExport() {
+  const storeDir = path.join(temp, "encrypted-export");
+  const destination = path.join(temp, "portable.pathmark");
+  const previousKey = process.env.PATHMARK_EXPORT_KEY;
+  try {
+    process.env.PATHMARK_STORE_DIR = storeDir;
+    process.env.PATHMARK_EXPORT_KEY = "hardening-passphrase";
+    const store = new PathmarkStore(loadConfig());
+    await store.add({ id: "encrypted-one", kind: "memory", text: "Private portable memory", source: "hardening" });
+    await store.exportTo(destination, { encrypted: true });
+    const encrypted = await readFile(destination, "utf8");
+    assert.equal(encrypted.includes("Private portable memory"), false);
+    const decrypted = await decryptPortableExport(encrypted, "hardening-passphrase");
+    assert.equal(decrypted.includes("Private portable memory"), true);
+    await assert.rejects(() => decryptPortableExport(encrypted, "wrong-passphrase"));
+  } finally {
+    if (previousKey === undefined) delete process.env.PATHMARK_EXPORT_KEY;
+    else process.env.PATHMARK_EXPORT_KEY = previousKey;
+  }
+}
+
 async function testInstallerPreservesUserConfig() {
   const dir = path.join(temp, "installer");
   const configPath = path.join(dir, "config.toml");
@@ -197,4 +328,38 @@ function record({ id, text, tags, at }) {
     createdAt: at,
     updatedAt: at,
   };
+}
+
+function waitForOutput(child, expected) {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => reject(new Error(`Timed out waiting for child output: ${stderr}`)), 3_000);
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+      if (stdout.includes(expected)) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+    child.stderr.on("data", (chunk) => (stderr += String(chunk)));
+    child.on("error", reject);
+  });
+}
+
+function waitForExit(child) {
+  return new Promise((resolve, reject) => {
+    child.on("close", (status) => (status === 0 ? resolve() : reject(new Error(`Child exited with ${status}`))));
+    child.on("error", reject);
+  });
+}
+
+async function fileExists(file) {
+  if (!file) return false;
+  try {
+    await readFile(file);
+    return true;
+  } catch {
+    return false;
+  }
 }

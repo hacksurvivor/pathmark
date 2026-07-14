@@ -111,6 +111,20 @@ export async function observe(input) {
     }
     return "";
 }
+export async function captureExternalTurn(input) {
+    if (input.role === "user" && shouldSkipUserPrompt(input.text))
+        return;
+    if (input.role === "assistant" && shouldSkipAssistantTurn(input.text))
+        return;
+    await saveCapturedRecord({
+        sessionId: input.sessionId,
+        cwd: input.cwd,
+        role: input.role,
+        text: input.text,
+        at: input.at ?? new Date().toISOString(),
+        stablePart: deterministicId([input.sessionId, input.role, input.at ?? "", normalizeCapturedText(input.text)]),
+    });
+}
 export async function writeback(input) {
     if (!input.transcript_path)
         return "";
@@ -181,7 +195,7 @@ function hashTurns(turns) {
 async function saveCapturedRecord(input) {
     const config = loadConfig();
     const store = new PathmarkStore(config);
-    await store.addRecord(capturedRecord(input));
+    await store.addRecord(capturedRecord(input), { dedupe: input.role !== "user" });
 }
 function capturedRecord(input) {
     const redacted = redactSecrets(input.text);

@@ -63,13 +63,27 @@ child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/ini
 
 const tools = await request("tools/list");
 const toolNames = tools.tools.map((tool) => tool.name);
-for (const required of ["remember", "search_memory", "recall_memory", "get_context", "ask_memory", "chat"]) {
+for (const required of [
+  "remember",
+  "search_memory",
+  "recall_memory",
+  "get_context",
+  "ask_memory",
+  "chat",
+  "update_memory",
+  "supersede_memory",
+  "purge_memory",
+  "doctor_memory",
+  "compact_memory",
+  "backup_memory",
+  "export_memory",
+]) {
   if (!toolNames.includes(required)) {
     throw new Error(`Missing expected tool: ${required}`);
   }
 }
 
-await request("tools/call", {
+const saved = await request("tools/call", {
   name: "remember",
   arguments: {
     text: "Pathmark smoke test memory for MCP users.",
@@ -77,6 +91,7 @@ await request("tools/call", {
     source: "smoke",
   },
 });
+const savedRecord = JSON.parse(saved.content?.[0]?.text ?? "{}");
 
 await request("tools/call", {
   name: "remember",
@@ -131,6 +146,56 @@ if (!recallText.includes("Pathmark smoke test memory") || !recallText.includes("
 }
 if (recallText.includes("tag-scoped recall should hide")) {
   throw new Error("Recall memory ignored tag scoping");
+}
+
+const secretSave = await request("tools/call", {
+  name: "remember",
+  arguments: {
+    text: "MCP_SECRET_TOKEN=must-not-be-stored",
+    namespace: "private-project",
+  },
+});
+const secretText = secretSave.content?.[0]?.text ?? "";
+if (secretText.includes("must-not-be-stored") || !secretText.includes("[REDACTED]")) {
+  throw new Error("MCP writes did not redact secret-shaped content");
+}
+
+await request("tools/call", {
+  name: "remember",
+  arguments: { text: "Namespace alpha decision", namespace: "alpha" },
+});
+await request("tools/call", {
+  name: "remember",
+  arguments: { text: "Namespace beta decision", namespace: "beta" },
+});
+const scopedContext = await request("tools/call", {
+  name: "get_context",
+  arguments: { query: "namespace decision", namespace: "alpha" },
+});
+const scopedText = scopedContext.content?.[0]?.text ?? "";
+if (!scopedText.includes("Namespace alpha decision") || scopedText.includes("Namespace beta decision")) {
+  throw new Error("get_context did not honor namespace scoping");
+}
+
+const updated = await request("tools/call", {
+  name: "update_memory",
+  arguments: { id: savedRecord.id, text: "Pathmark updated smoke test memory." },
+});
+if (!(updated.content?.[0]?.text ?? "").includes("Pathmark updated smoke test memory")) {
+  throw new Error("update_memory did not update the record");
+}
+
+const doctor = await request("tools/call", { name: "doctor_memory", arguments: {} });
+if (!(doctor.content?.[0]?.text ?? "").includes("exactDuplicateRecords")) {
+  throw new Error("doctor_memory did not return lifecycle diagnostics");
+}
+
+const purgePreview = await request("tools/call", {
+  name: "purge_memory",
+  arguments: { namespace: "beta" },
+});
+if (!(purgePreview.content?.[0]?.text ?? "").includes('"applied": false')) {
+  throw new Error("purge_memory must preview by default");
 }
 
 child.kill("SIGTERM");

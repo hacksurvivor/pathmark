@@ -33,6 +33,8 @@ assert.equal(geminiRun.status, 0, geminiRun.stderr);
 const gemini = JSON.parse(geminiRun.stdout);
 assert.equal(gemini.target, "gemini-cli");
 assert.equal(gemini.config.mcpServers.pathmark.command, "pathmark");
+assert.equal(gemini.config.hooks.BeforeAgent[0].hooks[0].command, "pathmark hook before-agent");
+assert.equal(gemini.config.hooks.AfterAgent[0].hooks[0].command, "pathmark hook after-agent");
 
 const kimiRun = runSetup(["kimi", "--json"]);
 assert.equal(kimiRun.status, 0, kimiRun.stderr);

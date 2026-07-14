@@ -129,9 +129,65 @@ function setupGuide(target) {
                         env,
                     },
                 },
+                hooks: {
+                    SessionStart: [
+                        {
+                            hooks: [
+                                {
+                                    name: "pathmark-session-start",
+                                    type: "command",
+                                    command: "pathmark hook session-start",
+                                    timeout: 30_000,
+                                    description: "Inject scoped Pathmark memory at session start.",
+                                },
+                            ],
+                        },
+                    ],
+                    BeforeAgent: [
+                        {
+                            hooks: [
+                                {
+                                    name: "pathmark-before-agent",
+                                    type: "command",
+                                    command: "pathmark hook before-agent",
+                                    timeout: 20_000,
+                                    description: "Recall memory and capture the submitted prompt.",
+                                },
+                            ],
+                        },
+                    ],
+                    AfterTool: [
+                        {
+                            matcher: ".*",
+                            hooks: [
+                                {
+                                    name: "pathmark-after-tool",
+                                    type: "command",
+                                    command: "pathmark hook after-tool",
+                                    timeout: 10_000,
+                                    description: "Capture compact tool activity.",
+                                },
+                            ],
+                        },
+                    ],
+                    AfterAgent: [
+                        {
+                            hooks: [
+                                {
+                                    name: "pathmark-after-agent",
+                                    type: "command",
+                                    command: "pathmark hook after-agent",
+                                    timeout: 20_000,
+                                    description: "Capture the final assistant response.",
+                                },
+                            ],
+                        },
+                    ],
+                },
             },
             notes: [
                 "Place this in the Gemini CLI settings file that defines MCP servers.",
+                "The generated hook entries enable automatic prompt, response, and compact tool capture.",
                 "Call recall_memory before answering when you want the visible memory trace.",
             ],
         };

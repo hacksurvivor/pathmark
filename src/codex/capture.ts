@@ -129,6 +129,25 @@ export async function observe(input: CodexHookInput): Promise<string> {
   return "";
 }
 
+export async function captureExternalTurn(input: {
+  sessionId: string;
+  cwd?: string;
+  role: "user" | "assistant" | "tool";
+  text: string;
+  at?: string;
+}): Promise<void> {
+  if (input.role === "user" && shouldSkipUserPrompt(input.text)) return;
+  if (input.role === "assistant" && shouldSkipAssistantTurn(input.text)) return;
+  await saveCapturedRecord({
+    sessionId: input.sessionId,
+    cwd: input.cwd,
+    role: input.role,
+    text: input.text,
+    at: input.at ?? new Date().toISOString(),
+    stablePart: deterministicId([input.sessionId, input.role, input.at ?? "", normalizeCapturedText(input.text)]),
+  });
+}
+
 export async function writeback(input: CodexHookInput): Promise<string> {
   if (!input.transcript_path) return "";
 
@@ -215,7 +234,7 @@ async function saveCapturedRecord(input: {
 }): Promise<void> {
   const config = loadConfig();
   const store = new PathmarkStore(config);
-  await store.addRecord(capturedRecord(input));
+  await store.addRecord(capturedRecord(input), { dedupe: input.role !== "user" });
 }
 
 function capturedRecord(input: {

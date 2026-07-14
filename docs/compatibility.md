@@ -70,7 +70,7 @@ Use `--json` when another installer or script should consume the output.
 | Claude Desktop | stdio MCP server | Use `mcpServers.pathmark.command = "pathmark"`. |
 | Cursor | stdio MCP server | Add `pathmark` to Cursor MCP settings; call `recall_memory` for visible used-memory entries. |
 | opencode | stdio MCP server | Add Pathmark as a local MCP server command; call `recall_memory` for visible used-memory entries. |
-| Gemini CLI | stdio MCP server | Add Pathmark to Gemini CLI MCP server settings; call `recall_memory` for visible used-memory entries. |
+| Gemini CLI | stdio MCP server + portable hooks | `pathmark setup gemini-cli --json` includes automatic scoped recall and prompt/response/tool capture hooks. |
 | Hermes Agent | stdio MCP server if MCP is enabled | Add Pathmark to the agent's MCP server list; keep memory local in `~/.pathmark`; call `recall_memory` for visible used-memory entries. |
 | OpenClaw | stdio MCP server if MCP tools are enabled | Register Pathmark as a local MCP tool server; call `recall_memory` for visible used-memory entries. |
 | Grok CLI / Grok Build | stdio MCP server when supported by the harness | If the Grok surface has MCP config, add Pathmark as a stdio server. Otherwise use `command` mode. |
@@ -181,7 +181,15 @@ Register Pathmark as a local MCP server command:
 
 ## Gemini CLI
 
-Add Pathmark to Gemini CLI's MCP server settings using the same local stdio shape:
+Generate the combined MCP and automatic-hook configuration:
+
+```bash
+pathmark setup gemini-cli --json
+```
+
+The generated `SessionStart`, `BeforeAgent`, `AfterTool`, and `AfterAgent` entries use Gemini CLI's stdin/stdout hook contract. They call `pathmark hook ...`, inject scoped memory as `additionalContext`, and capture prompt, response, and compact tool records locally.
+
+For MCP-only operation, use the same local stdio shape:
 
 ```json
 {
@@ -196,6 +204,17 @@ Add Pathmark to Gemini CLI's MCP server settings using the same local stdio shap
   }
 }
 ```
+
+## Transcript ingestion for other harnesses
+
+When a harness exposes transcripts but does not have a stable command-hook contract, import its JSON message array through the generic adapter:
+
+```bash
+pathmark ingest --client=claude-code --namespace=my-project < transcript.json
+pathmark ingest --client=opencode --namespace=my-project < transcript.json
+```
+
+Each message may contain `role` plus `text` or `content`, with optional `session_id`, `sessionId`, `createdAt`, or `timestamp`. Ingestion is redacted and exact-deduplicated by default. Use `--dry-run` to validate the record count without writing.
 
 ## Hermes Agent / OpenClaw / Grok-Compatible Harnesses
 

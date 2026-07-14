@@ -64,6 +64,13 @@ Pathmark exposes these MCP tools:
 | `get_context` | Return compact context for a task or question. |
 | `list_conclusions` | List saved conclusions. |
 | `delete_memory` | Soft-delete a memory or conclusion by id. |
+| `update_memory` | Correct a record while preserving prior versions. |
+| `supersede_memory` | Replace an outdated record with a linked current record. |
+| `purge_memory` | Preview or apply permanent deletion by id, namespace, tags, source, or date. |
+| `doctor_memory` | Report duplicates, deleted/expired records, conclusions, and index health. |
+| `compact_memory` | Preview or apply deduplication, retention, and physical cleanup with an automatic backup. |
+| `backup_memory` | Create a point-in-time canonical JSONL backup. |
+| `export_memory` | Export a scoped mergeable JSONL bundle, optionally encrypted. |
 | `ask_memory` | Return relevant context, or synthesize with `PATHMARK_CHAT_COMMAND` if configured. |
 | `chat` | Chat-compatible alias for `ask_memory`; returns the retrieved context so the client can show what was used. |
 | `get_config` | Show local store configuration. |
@@ -245,6 +252,14 @@ pathmark codex uninstall
 | `PATHMARK_OPENAI_API_KEY` | unset | OpenAI-compatible API key. |
 | `PATHMARK_OPENAI_MODEL` | unset | Model id for OpenAI-compatible synthesis. |
 | `PATHMARK_CHAT_TIMEOUT_MS` | `120000` | Synthesis command timeout. |
+| `PATHMARK_NAMESPACE` | unset | Default namespace applied consistently to MCP reads and writes. |
+| `PATHMARK_REDACT_MCP_WRITES` | `on` | Redact common secret-shaped values on `remember`, conclusion, update, supersede, import, and ingest paths. |
+| `PATHMARK_RETENTION_DAYS` | `0` | Retention policy used by compaction; `0` disables age-based removal. Conclusions are retained. |
+| `PATHMARK_RERANK_COMMAND` | unset | Optional local hybrid reranker. Receives query/candidates as JSON on stdin and returns ranked memory ids. |
+| `PATHMARK_HYBRID_CANDIDATES` | `500` | Maximum candidates sent to the optional reranker. |
+| `PATHMARK_RETRIEVAL_TIMEOUT_MS` | `30000` | Timeout for the optional reranker. |
+| `PATHMARK_EXPORT_KEY` | unset | Passphrase for AES-256-GCM portable exports/imports. Never returned by `get_config`. |
+| `PATHMARK_INDEX_LOCK_TIMEOUT_MS` | `120000` | Cross-process wait limit for index initialization or rebuild. |
 
 ## Synthesis Modes
 
@@ -316,6 +331,47 @@ command
 
 Aliases include `claude`, `gemini`, `kimi`, `glm`, and `z-ai`.
 
+Gemini CLI setup includes portable `SessionStart`, `BeforeAgent`, `AfterTool`, and `AfterAgent` hooks for automatic scoped recall and capture. Other harnesses can feed exported transcripts through the generic ingestion surface:
+
+```bash
+pathmark ingest --client=claude-code --namespace=my-project < transcript.json
+pathmark ingest --client=opencode --namespace=my-project < transcript.json
+```
+
+## Store maintenance and portable sync
+
+Maintenance commands preview destructive changes unless `--apply` is present:
+
+```bash
+pathmark doctor
+pathmark compact
+pathmark compact --apply --retention-days=90
+pathmark purge --namespace=old-client
+pathmark purge --namespace=old-client --apply
+```
+
+Applied compaction and purge create a backup before replacing the canonical file. Soft deletion remains available through `delete_memory`; hard purge physically removes selected records from JSONL and rebuilds the derived index.
+
+Use scoped exports and merge imports as the transport-neutral sync layer:
+
+```bash
+pathmark export --namespace=my-project --output=project.jsonl
+pathmark import project.jsonl --namespace=my-project
+```
+
+For an encrypted portable bundle, configure the passphrase outside the command line:
+
+```bash
+PATHMARK_EXPORT_KEY='use-a-secret-manager' pathmark export --encrypted --output=project.pathmark
+PATHMARK_EXPORT_KEY='use-a-secret-manager' pathmark import project.pathmark
+```
+
+Pathmark does not silently upload these files. Move them through a trusted filesystem, backup tool, or sync provider of your choice.
+
+## Optional hybrid retrieval
+
+Default retrieval stays local SQLite FTS. To enable semantic or embedding-backed reranking without forcing a model dependency, set `PATHMARK_RERANK_COMMAND` to a trusted local command. It receives one JSON object on stdin containing `query` and `candidates`, and must return a JSON array of ranked record ids (or `{ "ids": [...] }`). If it fails or times out, Pathmark falls back to lexical results.
+
 ## Data Format
 
 Pathmark stores newline-delimited JSON at:
@@ -340,20 +396,16 @@ Each record is inspectable:
 }
 ```
 
-Deletes are soft deletes: the record gets a `deletedAt` timestamp.
+Deletes are soft deletes by default: the record gets a `deletedAt` timestamp. Use preview-first `purge_memory` or `pathmark purge --apply` for physical erasure. Updates preserve up to 50 prior versions, superseded records link to their replacement, and expired records are excluded from recall.
 
 Malformed JSONL lines are skipped rather than crashing every tool. `pathmark codex status` reports their count as `invalidRecordCount` so the source file can be repaired deliberately.
 
 ## Roadmap
 
-- Harness installers for Codex, Claude Code, opencode, Gemini CLI, and other MCP clients.
-- Optional auto-capture hooks/importers per harness, so useful context can be saved with less prompting.
 - Provider presets for common local AI CLIs where stable commands exist.
-- Import/export commands for other memory systems.
-- Better ranking with optional local embeddings.
-- Namespaces for projects, teams, and clients.
 - Encrypted store option.
 - Hosted sync as an opt-in layer, not a requirement.
+- Native auto-capture packages for additional harness plugin systems beyond Codex and Gemini CLI.
 - Example recipes for Codex, Claude Desktop, Cursor, ChatGPT, and local LLM tools.
 
 ## Positioning

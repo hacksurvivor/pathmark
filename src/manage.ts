@@ -1,0 +1,242 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { loadConfig } from "./config.js";
+import { redactSecrets } from "./redact.js";
+import { decryptPortableExport } from "./portable.js";
+import { namespaceTag, PathmarkStore } from "./store.js";
+import type { PathmarkRecordDraft, PathmarkRecordKind } from "./types.js";
+
+const USAGE = [
+  "Usage:",
+  "  pathmark doctor",
+  "  pathmark compact [--apply] [--retention-days=N] [--keep-deleted] [--no-dedupe]",
+  "  pathmark backup [--output=FILE]",
+  "  pathmark export [--output=FILE] [--namespace=NAME] [--tag=TAG] [--kind=memory|conclusion] [--encrypted]",
+  "  pathmark import FILE [--namespace=NAME] [--dry-run]",
+  "  pathmark ingest --client=NAME [--namespace=NAME] [--dry-run] < transcript.json",
+  "  pathmark purge [--id=ID] [--namespace=NAME] [--tag=TAG] [--source=SOURCE] [--before=ISO] [--apply]",
+].join("\n");
+
+export async function runManagementCommand(command: string, args: string[]): Promise<void> {
+  const config = loadConfig();
+  const store = new PathmarkStore(config);
+  const options = parseOptions(args);
+
+  if (command === "doctor") {
+    console.log(JSON.stringify(await store.diagnose(), null, 2));
+    return;
+  }
+  if (command === "compact") {
+    console.log(
+      JSON.stringify(
+        await store.compact({
+          dedupe: !options.flags.has("no-dedupe"),
+          dropDeleted: !options.flags.has("keep-deleted"),
+          retentionDays: numberOption(options, "retention-days", config.retentionDays),
+          dryRun: !options.flags.has("apply"),
+        }),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  if (command === "backup") {
+    console.log(JSON.stringify({ file: await store.backup(option(options, "output")) }, null, 2));
+    return;
+  }
+  if (command === "export") {
+    const destination = option(options, "output") ?? defaultExportFile();
+    const kind = option(options, "kind");
+    if (kind && kind !== "memory" && kind !== "conclusion") throw new Error("--kind must be memory or conclusion");
+    console.log(
+      JSON.stringify(
+        await store.exportTo(destination, {
+          namespace: option(options, "namespace"),
+          tags: options.values.get("tag"),
+          kind: kind as PathmarkRecordKind | undefined,
+          includeDeleted: options.flags.has("include-deleted"),
+          encrypted: options.flags.has("encrypted"),
+        }),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  if (command === "purge") {
+    console.log(
+      JSON.stringify(
+        await store.purge({
+          id: option(options, "id"),
+          namespace: option(options, "namespace"),
+          tags: options.values.get("tag"),
+          source: option(options, "source"),
+          before: option(options, "before"),
+          dryRun: !options.flags.has("apply"),
+        }),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  if (command === "import") {
+    const inputFile = options.positionals[0];
+    if (!inputFile) throw new Error(`Import requires a JSONL file.\n${USAGE}`);
+    const drafts = await importDrafts(
+      inputFile,
+      option(options, "namespace"),
+      config.redactMcpWrites,
+      config.exportEncryptionKey,
+    );
+    if (options.flags.has("dry-run")) {
+      console.log(JSON.stringify({ applied: false, recordCount: drafts.length }, null, 2));
+      return;
+    }
+    const backupFile = await store.backup();
+    const results = await store.addRecords(drafts, { dedupe: true });
+    console.log(
+      JSON.stringify(
+        { applied: true, imported: results.filter((result) => result.created).length, skipped: results.filter((result) => !result.created).length, backupFile },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  if (command === "ingest") {
+    const client = option(options, "client");
+    if (!client) throw new Error(`Ingest requires --client=NAME.\n${USAGE}`);
+    const raw = await readStdin();
+    const drafts = transcriptDrafts(raw, client, option(options, "namespace"), config.redactMcpWrites);
+    if (options.flags.has("dry-run")) {
+      console.log(JSON.stringify({ applied: false, recordCount: drafts.length }, null, 2));
+      return;
+    }
+    const results = await store.addRecords(drafts, { dedupe: true });
+    console.log(
+      JSON.stringify(
+        { applied: true, imported: results.filter((result) => result.created).length, skipped: results.filter((result) => !result.created).length },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  throw new Error(USAGE);
+}
+
+interface ParsedOptions {
+  flags: Set<string>;
+  values: Map<string, string[]>;
+  positionals: string[];
+}
+
+function parseOptions(args: string[]): ParsedOptions {
+  const parsed: ParsedOptions = { flags: new Set(), values: new Map(), positionals: [] };
+  for (const arg of args) {
+    if (!arg.startsWith("--")) {
+      parsed.positionals.push(arg);
+      continue;
+    }
+    const [name, value] = arg.slice(2).split("=", 2);
+    if (value === undefined) parsed.flags.add(name);
+    else parsed.values.set(name, [...(parsed.values.get(name) ?? []), value]);
+  }
+  return parsed;
+}
+
+function option(options: ParsedOptions, name: string): string | undefined {
+  return options.values.get(name)?.at(-1);
+}
+
+function numberOption(options: ParsedOptions, name: string, fallback: number): number {
+  const raw = option(options, name);
+  if (raw === undefined) return fallback;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value < 0) throw new Error(`--${name} must be a non-negative integer`);
+  return value;
+}
+
+function defaultExportFile(): string {
+  return path.resolve(`pathmark-export-${new Date().toISOString().replace(/[:.]/g, "-")}.jsonl`);
+}
+
+async function importDrafts(
+  file: string,
+  namespace: string | undefined,
+  redact: boolean,
+  encryptionKey: string | undefined,
+): Promise<PathmarkRecordDraft[]> {
+  const raw = await decryptPortableExport(await readFile(path.resolve(file), "utf8"), encryptionKey);
+  const drafts: PathmarkRecordDraft[] = [];
+  for (const [index, line] of raw.split("\n").entries()) {
+    if (!line.trim()) continue;
+    let value: unknown;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      throw new Error(`Invalid JSON on line ${index + 1}`);
+    }
+    if (!isObject(value) || (value.kind !== "memory" && value.kind !== "conclusion") || typeof value.text !== "string") {
+      throw new Error(`Invalid Pathmark record on line ${index + 1}`);
+    }
+    drafts.push({
+      id: typeof value.id === "string" ? value.id : undefined,
+      kind: value.kind,
+      text: redact ? redactSecrets(value.text).text : value.text,
+      tags: scopedTags(Array.isArray(value.tags) ? value.tags.filter((tag): tag is string => typeof tag === "string") : [], namespace),
+      source: typeof value.source === "string" ? value.source : "pathmark-import",
+      createdAt: typeof value.createdAt === "string" ? value.createdAt : undefined,
+      updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : undefined,
+      expiresAt: typeof value.expiresAt === "string" ? value.expiresAt : undefined,
+      supersedes: typeof value.supersedes === "string" ? value.supersedes : undefined,
+    });
+  }
+  return drafts;
+}
+
+function transcriptDrafts(raw: string, client: string, namespace: string | undefined, redact: boolean): PathmarkRecordDraft[] {
+  const parsed = JSON.parse(raw) as unknown;
+  const messages = Array.isArray(parsed) ? parsed : isObject(parsed) && Array.isArray(parsed.messages) ? parsed.messages : [parsed];
+  const now = new Date().toISOString();
+  return messages.flatMap((message, index) => {
+    if (!isObject(message)) return [];
+    const role = typeof message.role === "string" ? message.role.toLowerCase() : "unknown";
+    const content = typeof message.text === "string" ? message.text : typeof message.content === "string" ? message.content : undefined;
+    if (!content?.trim()) return [];
+    const text = redact ? redactSecrets(content).text : content;
+    const session = typeof message.session_id === "string" ? message.session_id : typeof message.sessionId === "string" ? message.sessionId : "import";
+    const at = typeof message.createdAt === "string" ? message.createdAt : typeof message.timestamp === "string" ? message.timestamp : now;
+    return [
+      {
+        id: createHash("sha256").update(`${client}\0${session}\0${index}\0${text}`).digest("hex"),
+        kind: "memory" as const,
+        text,
+        tags: scopedTags(["transcript-import", `client:${client}`, `role-${role}`, `session:${session}`], namespace),
+        source: `${client}:session:${session}`,
+        createdAt: at,
+        updatedAt: at,
+      },
+    ];
+  });
+}
+
+function scopedTags(tags: string[], namespace: string | undefined): string[] {
+  return [...new Set([...tags, ...(namespace ? [namespaceTag(namespace)] : [])])];
+}
+
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  const raw = Buffer.concat(chunks).toString("utf8").trim();
+  if (!raw) throw new Error("No transcript JSON received on stdin");
+  return raw;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
