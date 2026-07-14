@@ -3,6 +3,10 @@
 Stop re-explaining your repo each time you switch agents.
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/pathmark"><img src="https://img.shields.io/npm/dt/pathmark?label=npm%20downloads" alt="npm downloads"></a>
+</p>
+
+<p align="center">
   <img src="https://raw.githubusercontent.com/hacksurvivor/pathmark/main/assets/pathmark-hero.png" alt="Pathmark local memory layer shared by Codex, Claude Code, opencode, and Gemini CLI" width="100%">
 </p>
 
