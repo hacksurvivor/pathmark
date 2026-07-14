@@ -33,7 +33,7 @@ Pathmark is currently pre-1.0. Security fixes are handled on `main` and released
 
 ## Reporting a Vulnerability
 
-Please report security issues privately by opening a GitHub security advisory for this repository when available, or by contacting the maintainer directly through the GitHub profile.
+Please report security issues privately through [GitHub private vulnerability reporting](https://github.com/hacksurvivor/pathmark/security/advisories/new). If that form is unavailable, contact the [maintainer through GitHub](https://github.com/hacksurvivor).
 
 Include:
 
