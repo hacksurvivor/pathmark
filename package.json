@@ -1,6 +1,6 @@
 {
   "name": "pathmark",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "One local memory layer for Codex, Claude Code, opencode, Cursor, Gemini CLI, and MCP-capable coding agents.",
   "type": "module",
   "bin": {
