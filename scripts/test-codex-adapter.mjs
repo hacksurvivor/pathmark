@@ -55,7 +55,7 @@ try {
 
   const harmlessUrl = redactSecrets("PUBLIC_URL=https://example.com/app");
   assert.equal(harmlessUrl.redacted, false);
-  assert.equal(harmlessUrl.text.includes("https://example.com/app"), true);
+  assert.equal(harmlessUrl.text, "PUBLIC_URL=https://example.com/app");
 
   const store = createStore("base");
   const id = deterministicId(["capture", "same"]);
@@ -492,6 +492,20 @@ try {
       tool_input: { cmd: "PATHMARK_STORE_DIR=/tmp node ./dist/index.js codex prompt" },
     }),
     "",
+  );
+  assert.equal(
+    summarizeToolUse({
+      tool_name: "functions.exec_command",
+      tool_input: { cmd: "node --inspect ./dist/index.js codex prompt" },
+    }),
+    "",
+  );
+  assert.equal(
+    summarizeToolUse({
+      tool_name: "functions.exec_command",
+      tool_input: { cmd: `node ${"--trace-warnings ".repeat(2_000)}./safe-script.js` },
+    }).startsWith("ran:"),
+    true,
   );
   assert.equal(
     summarizeToolUse({

@@ -111,8 +111,17 @@ function shellSegments(command) {
 function isPathmarkShellSegment(segment) {
     return (/^pathmark(?:\s|$)/.test(segment) ||
         /^npx(?:\s+(?:--yes|-y))*\s+pathmark(?:\s|$)/.test(segment) ||
-        /^node(?:\s+--?[^\s]+)*\s+\S*pathmark\S*(?:\s|$)/.test(segment) ||
-        /^node\b[\s\S]*\bdist\/index\.js\s+codex(?:\s|$)/.test(segment));
+        isPathmarkNodeSegment(segment));
+}
+function isPathmarkNodeSegment(segment) {
+    const tokens = segment.trim().split(/\s+/);
+    if (tokens[0] !== "node")
+        return false;
+    const script = tokens.slice(1).find((token) => !token.startsWith("-")) ?? "";
+    if (script.includes("pathmark"))
+        return true;
+    const distIndex = tokens.findIndex((token, index) => index > 0 && /(?:^|\/)dist\/index\.js$/.test(token));
+    return distIndex > 0 && tokens[distIndex + 1] === "codex";
 }
 function stripLeadingEnvAssignments(command) {
     let text = command.trim();
