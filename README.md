@@ -4,7 +4,7 @@ Stop re-explaining your repo each time you switch agents.
 
 <p align="center">
   <a href="https://www.npmjs.com/package/pathmark"><img src="https://img.shields.io/npm/dt/pathmark?label=npm%20downloads" alt="npm downloads"></a>
-  <a href="https://socket.dev/npm/package/pathmark/overview/0.1.7"><img src="https://img.shields.io/badge/Socket-v0.1.7-1f6feb" alt="Socket package health for Pathmark v0.1.7"></a>
+  <a href="https://www.npmjs.com/package/pathmark"><img src="https://img.shields.io/npm/dw/pathmark?label=weekly%20downloads" alt="weekly npm downloads"></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/hacksurvivor/pathmark"><img src="https://api.scorecard.dev/projects/github.com/hacksurvivor/pathmark/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
