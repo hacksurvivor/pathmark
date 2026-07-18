@@ -16,6 +16,22 @@ Pathmark gives Codex, Claude Code, opencode, Gemini CLI, Cursor, and any MCP-cap
 
 Your context stays on disk at `~/.pathmark/memory/memory.jsonl`. You do not need an account, hosted database, API key, or vendor backend to start.
 
+## OpenAI Build Week 2026
+
+Pathmark is a **Developer Tools** submission for OpenAI Build Week 2026. The project existed before the challenge, so the submission is deliberately scoped to the meaningful extension built after the submission period opened on July 13, 2026.
+
+During the eligible period, Codex with GPT-5.6 helped audit and extend Pathmark from a working local memory layer into safer long-running developer infrastructure:
+
+- fixed a reproduced multi-process SQLite index race;
+- added revision history, superseding, expiration, retention, diagnostics, backup, compaction, and preview-first hard purge;
+- added namespace-scoped reads and writes plus default secret redaction;
+- added scoped import/export, optional AES-256-GCM portable exports, local hybrid reranking, and portable harness ingestion;
+- hardened CI and npm delivery with required CodeQL and dependency review, immutable Action pins, protected tags, OpenSSF analysis, and SLSA provenance.
+
+The primary Codex session for this work is `019f5fc3-d7e6-7b41-8a30-d161c90b98fb`. The qualifying release range is `v0.1.6` through `v0.1.7`; the pre-challenge baseline is commit `4c0e87dfdbd2ba4c643abd8b887cc228bdb08b73`.
+
+See the [Build Week implementation record](docs/build-week-2026.md) for the before/after boundary, commit evidence, Codex collaboration details, and a fast judge test.
+
 ## Why Pathmark
 
 You do not work in one tool. You ask Codex to patch, Claude Code to review, opencode to clean up, and Gemini CLI to challenge the plan. Each tool starts cold unless you carry the context across.
