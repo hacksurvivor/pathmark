@@ -99,6 +99,9 @@ async function testCorruptJsonlRecovery() {
 async function testIndexedStore() {
   const storeDir = path.join(temp, "indexed");
   process.env.PATHMARK_STORE_DIR = storeDir;
+  await mkdir(storeDir, { recursive: true });
+  const legacyIndex = path.join(storeDir, "memory.index.sqlite");
+  await writeFile(legacyIndex, "legacy-index-sentinel", "utf8");
   const store = new PathmarkStore(loadConfig());
   await store.addRecords(
     Array.from({ length: 2_000 }, (_, index) =>
@@ -112,7 +115,8 @@ async function testIndexedStore() {
   );
   const results = await store.search({ query: "decision 1999", limit: 5 });
   assert.equal(results.some((result) => result.record.id === "indexed-1999"), true);
-  assert.equal((await readdir(storeDir)).includes("memory.index.sqlite"), true);
+  assert.equal((await readdir(storeDir)).includes("memory.index.v4.sqlite"), true);
+  assert.equal(await readFile(legacyIndex, "utf8"), "legacy-index-sentinel");
 }
 
 async function testBusyIndexIsNotRenamedAsCorrupt() {
@@ -122,7 +126,7 @@ async function testBusyIndexIsNotRenamedAsCorrupt() {
   await store.add({ id: "busy-one", kind: "memory", text: "busy index record", source: "hardening-test" });
   await store.search({ query: "busy index" });
 
-  const indexFile = path.join(storeDir, "memory.index.sqlite");
+  const indexFile = path.join(storeDir, "memory.index.v4.sqlite");
   const locker = spawn(
     process.execPath,
     [

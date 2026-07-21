@@ -16,6 +16,9 @@ export async function readCursorState(storeDir, sessionId) {
             transcriptFingerprint: typeof parsed.transcriptFingerprint === "string" && parsed.transcriptFingerprint
                 ? parsed.transcriptFingerprint
                 : undefined,
+            parserVersion: typeof parsed.parserVersion === "number" && Number.isInteger(parsed.parserVersion) && parsed.parserVersion > 0
+                ? parsed.parserVersion
+                : undefined,
         };
     }
     catch {
@@ -30,6 +33,7 @@ export async function writeCursor(storeDir, sessionId, count, metadata = {}) {
         count: safeCount,
         updatedAt: new Date().toISOString(),
         ...(metadata.transcriptFingerprint ? { transcriptFingerprint: metadata.transcriptFingerprint } : {}),
+        ...(metadata.parserVersion ? { parserVersion: metadata.parserVersion } : {}),
     }, null, 2), "utf8");
 }
 //# sourceMappingURL=cursor.js.map

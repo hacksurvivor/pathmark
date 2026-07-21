@@ -1,6 +1,44 @@
 const WORD_RE = /[\p{L}\p{N}_'-]+/gu;
 const CJK_RUN_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
 const CJK_CHAR_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+const SEARCH_ALIASES: Record<string, string[]> = {
+  architectures: ["design"],
+  architecture: ["design"],
+  calls: ["call"],
+  chose: ["selection"],
+  choose: ["selection"],
+  chosen: ["selection"],
+  commands: ["command"],
+  contacts: ["contact"],
+  databases: ["database"],
+  decided: ["selection"],
+  decide: ["selection"],
+  designs: ["design"],
+  leads: ["lead"],
+  memories: ["memory"],
+  mongodb: ["database"],
+  mysql: ["database"],
+  postgres: ["database"],
+  postgresql: ["database"],
+  processed: ["process"],
+  processing: ["process"],
+  prompts: ["prompt"],
+  results: ["result"],
+  selected: ["selection"],
+  selects: ["selection"],
+  showed: ["show"],
+  showing: ["show"],
+  shown: ["show"],
+  sqlite: ["database"],
+  stt: ["transcription"],
+  supabase: ["database"],
+  tools: ["tool"],
+  transcript: ["transcription"],
+  transcripts: ["transcription"],
+  transcriber: ["transcription"],
+  transcribers: ["transcription"],
+  whisper: ["transcription"],
+};
 
 export function tokenizeSearchText(text: string): string[] {
   const normalized = text.normalize("NFKC").toLowerCase();
@@ -30,5 +68,9 @@ export function isCjkSearchTerm(term: string): boolean {
 function addTerm(terms: Set<string>, value: string): void {
   const term = value.trim();
   if (!term) return;
-  if ([...term].length > 1 || isCjkSearchTerm(term)) terms.add(term);
+  if ([...term].length > 1 || isCjkSearchTerm(term)) {
+    terms.add(term);
+    const aliases = Object.hasOwn(SEARCH_ALIASES, term) ? SEARCH_ALIASES[term] : undefined;
+    for (const alias of aliases ?? []) terms.add(alias);
+  }
 }

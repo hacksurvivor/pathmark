@@ -43,7 +43,7 @@ export function summarizeToolUse(input: ToolHookInput): string {
   if (SKIP_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix))) return "";
 
   if (SHELL_TOOLS.has(name)) {
-    const command = shellCommand(input.tool_input).trim();
+    const command = toolShellCommand(input.tool_input).trim();
     if (!command) return "";
     const summaryCommand = nonPathmarkShellCommand(command);
     if (!summaryCommand) return "";
@@ -61,7 +61,7 @@ export function summarizeToolUse(input: ToolHookInput): string {
   return `used ${name}`;
 }
 
-function shellCommand(input: unknown): string {
+export function toolShellCommand(input: unknown): string {
   if (Array.isArray(input)) return input.map(String).join(" ");
   if (!isRecord(input)) return "";
 
@@ -86,6 +86,10 @@ function changedFiles(patch: string): string[] {
     ...[...patch.matchAll(/^\+\+\+ b\/(.+)$/gm)].map((match) => match[1]),
   ];
   return [...new Set(files.map((file) => file.trim()).filter((file) => file && file !== "/dev/null"))];
+}
+
+export function toolChangedFiles(toolName: string, input: unknown): string[] {
+  return toolName === "apply_patch" || toolName === "functions.apply_patch" ? changedFiles(patchText(input)) : [];
 }
 
 function isPathmarkShellCommand(command: string): boolean {

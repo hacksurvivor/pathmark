@@ -8,14 +8,74 @@ const INJECTED_TAGS = [
     "plugins_instructions",
     "skills_instructions",
     "collaboration_mode",
+    "codex_internal_context",
     "pathmark-memory",
     "pathmark-memory-nudge",
+    "recommended_plugins",
+    "subagent_notification",
 ];
 export async function readCodexTranscript(file) {
     return readCodexTranscriptFile(file, { strict: false });
 }
 export async function readCodexTranscriptStrict(file) {
     return readCodexTranscriptFile(file, { strict: true });
+}
+export async function readCodexToolResults(file) {
+    const raw = await readFile(file, "utf8");
+    const results = [];
+    for (const line of raw.split("\n")) {
+        if (!line.trim())
+            continue;
+        let event;
+        try {
+            event = JSON.parse(line);
+        }
+        catch {
+            continue;
+        }
+        const parsed = parseToolResultEvent(event);
+        if (parsed)
+            results.push(parsed);
+    }
+    return results;
+}
+export async function readCodexLegacyNoiseTurns(file) {
+    const raw = await readFile(file, "utf8");
+    const turns = [];
+    for (const line of raw.split("\n")) {
+        if (!line.trim())
+            continue;
+        let event;
+        try {
+            event = JSON.parse(line);
+        }
+        catch {
+            continue;
+        }
+        if (!isRecord(event) || event.type !== "response_item")
+            continue;
+        const payload = event.payload;
+        if (!isRecord(payload) || payload.type !== "message")
+            continue;
+        const role = payload.role;
+        if (role !== "user" && role !== "assistant")
+            continue;
+        const text = collectText(payload.content).trim();
+        if (!text)
+            continue;
+        const legacyNoise = role === "assistant"
+            ? payload.phase === "commentary"
+            : isInjectedContext(text) || isCodexUserTransport(text);
+        if (!legacyNoise)
+            continue;
+        turns.push({
+            role,
+            text,
+            at: typeof event.timestamp === "string" ? event.timestamp : undefined,
+            index: turns.length,
+        });
+    }
+    return turns;
 }
 async function readCodexTranscriptFile(file, options) {
     const raw = await readFile(file, "utf8");
@@ -43,6 +103,35 @@ async function readCodexTranscriptFile(file, options) {
 export function parseTranscriptEvent(event, index) {
     return parseTranscriptEventInternal(event, index);
 }
+function parseToolResultEvent(event) {
+    if (!isRecord(event) || event.type !== "response_item")
+        return undefined;
+    const payload = event.payload;
+    if (!isRecord(payload) || payload.type !== "custom_tool_call_output" || typeof payload.call_id !== "string") {
+        return undefined;
+    }
+    const output = collectText(payload.output).trim();
+    if (!output)
+        return undefined;
+    const explicitExit = output.match(/(?:process\s+)?exit(?:ed)?(?:\s+with)?(?:\s+code)?[:\s]+(-?\d+)/i);
+    const exitCode = explicitExit
+        ? Number.parseInt(explicitExit[1], 10)
+        : /\bscript completed\b/i.test(output)
+            ? 0
+            : undefined;
+    const durationMatch = output.match(/\bwall time[:\s]+(\d+(?:\.\d+)?)\s*(milliseconds?|ms|seconds?|s)\b/i);
+    const durationMs = durationMatch
+        ? Number.parseFloat(durationMatch[1]) * (/^m/i.test(durationMatch[2]) ? 1 : 1_000)
+        : undefined;
+    return {
+        callId: payload.call_id,
+        output,
+        at: typeof event.timestamp === "string" ? event.timestamp : undefined,
+        status: exitCode === undefined ? "unknown" : exitCode === 0 ? "success" : "error",
+        ...(exitCode === undefined ? {} : { exitCode }),
+        ...(durationMs === undefined ? {} : { durationMs: Math.max(0, Math.round(durationMs)) }),
+    };
+}
 function parseTranscriptEventInternal(event, index, strict) {
     if (!isRecord(event) || event.type !== "response_item")
         return undefined;
@@ -51,20 +140,42 @@ function parseTranscriptEventInternal(event, index, strict) {
         return undefined;
     if (payload.role !== "user" && payload.role !== "assistant")
         return undefined;
-    const text = collectText(payload.content).trim();
+    if (payload.role === "assistant" && typeof payload.phase === "string" && payload.phase !== "final_answer") {
+        return undefined;
+    }
+    let text = collectText(payload.content).trim();
     if (!text) {
         if (strict)
             throw new Error(`Malformed Codex transcript message at line ${strict.lineNumber}: ${strict.file}`);
         return undefined;
     }
-    if (payload.role === "user" && isInjectedContext(text))
-        return undefined;
+    if (payload.role === "user") {
+        text = normalizeCodexUserMessage(text);
+        if (!text)
+            return undefined;
+    }
     return {
         role: payload.role,
         text,
         at: typeof event.timestamp === "string" ? event.timestamp : undefined,
         index,
     };
+}
+export function normalizeCodexUserMessage(text) {
+    const trimmed = text.trim();
+    if (!trimmed || isInjectedContext(trimmed))
+        return "";
+    return unwrapCodexUserTransport(trimmed);
+}
+function unwrapCodexUserTransport(text) {
+    if (!isCodexUserTransport(text))
+        return text;
+    const marker = /^##\s*My request for Codex:\s*$/im;
+    const match = marker.exec(text);
+    return match ? text.slice(match.index + match[0].length).trim() : "";
+}
+function isCodexUserTransport(text) {
+    return /^#\s*(?:files mentioned by the user|response annotations|diff comments):/i.test(text.trimStart());
 }
 function collectText(content) {
     if (typeof content === "string")

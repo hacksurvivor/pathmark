@@ -39,7 +39,7 @@ You do not work in one tool. You ask Codex to patch, Claude Code to review, open
 Pathmark gives those tools one place to read and write memory:
 
 - One local JSONL store across harnesses.
-- Standard MCP tools: `remember`, `search_memory`, `recall_memory`, `get_context`, and `ask_memory`.
+- Standard MCP tools: `remember`, `search_memory`, `recall_memory`, `session_trace`, `get_context`, and `ask_memory`.
 - Client-side synthesis by default, so your coding agent reads the context and answers.
 - Optional Codex CLI, local command, and OpenAI-compatible synthesis modes.
 - Plain files you can inspect, back up, delete, or migrate.
@@ -82,7 +82,8 @@ Pathmark exposes these MCP tools:
 | `remember` | Save a raw memory item. |
 | `create_conclusion` | Save a higher-signal durable conclusion or preference. |
 | `search_memory` | Search memories and conclusions. |
-| `recall_memory` | Transparent recall: returns context plus the exact memory IDs, timestamps, sources, matches, tags, and previews used. Accepts optional `tags` for scoped visible recall. |
+| `recall_memory` | Transparent recall: returns context plus the exact memory IDs, timestamps, sources, matches, tags, and previews used. Accepts optional `tags`, exact `ids`, and compact `includeRecords: false` output. |
+| `session_trace` | Return a bounded chronological audit trail for one session: prompts, exact injected memory IDs, redacted tool inputs/results, and answers. |
 | `get_context` | Return compact context for a task or question. |
 | `list_conclusions` | List saved conclusions. |
 | `delete_memory` | Soft-delete a memory or conclusion by id. |
@@ -233,14 +234,21 @@ This registers the Pathmark MCP server, enables Codex hooks, and removes old com
 
 The Codex adapter is proactive by default:
 
-- prompt, tool, and transcript context are captured locally;
+- user prompts, final assistant answers, and tool activity are captured locally; intermediate Codex commentary is excluded;
+- tool activity records include bounded redacted input previews and hashes, status, exit code, duration, and changed files when the hook provides them;
+- tool-output hashes are captured for correlation, while output text remains private by default and requires `PATHMARK_CODEX_CAPTURE_TOOL_OUTPUTS=on`;
+- activity records expire after 30 days and are physically capped at 5,000 records by default;
 - session start/resume injects relevant workspace memory;
 - each non-trivial user prompt searches the local store and injects matching memory as Codex `additionalContext`;
-- when matching memory is found, Codex receives an instruction to call `recall_memory` with the same query and workspace tag so the UI can show the exact `usedMemories`;
+- when matching memory is found, Codex receives an instruction to call `recall_memory` with the exact pre-capture result IDs and workspace tag, so the UI cannot mistake the newly saved prompt for previously used memory;
+- prompt context applies relevance and near-duplicate filtering before injection, and automatic visible recall omits the redundant full `records` copy;
+- legacy transport envelopes and assistant progress updates are excluded from session-start and proactive relevance results, while remaining available to explicit raw search;
 - no matching memory means no extra context is injected.
 
 Set `PATHMARK_CODEX_PROACTIVE_RECALL=off` if you want Codex hooks to capture memory but stop prompt-time recall.
 Set `PATHMARK_CODEX_VISIBLE_RECALL=off` if you want prompt-time recall without the visible `recall_memory` tool-call request.
+
+`recall_memory` is a point-in-time record of memory used before an answer. It intentionally does not include commands that run later. Use `session_trace` with the exact session ID to inspect the chronological prompt → injected memories → tools/results → final-answer trail. When explicitly enabled, output previews are capped at 2,000 characters and redacted before storage; hashes preserve correlation without storing output text by default. Upgrading an existing cursor migrates to final-answer-only parsing without duplicating previously captured user or final-answer turns. When the original transcript is available, exact legacy `phase: "commentary"` records are soft-deleted by timestamp and text during that migration.
 
 Use `--replace-legacy-hooks` when you want Pathmark hooks to take over from earlier compatible hook commands. Without it, Pathmark installs alongside existing hook commands.
 
@@ -266,6 +274,7 @@ pathmark codex uninstall
 | `PATHMARK_MAX_SEARCH_RESULTS` | `12` | Default search limit. |
 | `PATHMARK_CODEX_PROACTIVE_RECALL` | `on` | Automatically inject relevant Pathmark context before non-trivial Codex prompts. Use `off` to capture without prompt-time recall. |
 | `PATHMARK_CODEX_VISIBLE_RECALL` | `on` | Ask Codex to call `recall_memory` when prompt-time recall found context, so the UI shows the exact `usedMemories`. |
+| `PATHMARK_CODEX_CAPTURE_TOOL_OUTPUTS` | `off` | Store bounded redacted tool-output previews. Output hashes, status, duration, and exit codes remain available when this is off. |
 | `PATHMARK_SYNTHESIS_PROVIDER` | `client` | `client`, `command`, `codex`, or `openai-compatible`. |
 | `PATHMARK_CHAT_COMMAND` | unset | Command provider: receives a synthesized prompt on stdin and writes an answer on stdout. |
 | `PATHMARK_CODEX_COMMAND` | `codex` | Codex provider command. |
@@ -277,6 +286,8 @@ pathmark codex uninstall
 | `PATHMARK_NAMESPACE` | unset | Default namespace applied consistently to MCP reads and writes. |
 | `PATHMARK_REDACT_MCP_WRITES` | `on` | Redact common secret-shaped values on `remember`, conclusion, update, supersede, import, and ingest paths. |
 | `PATHMARK_RETENTION_DAYS` | `0` | Retention policy used by compaction; `0` disables age-based removal. Conclusions are retained. |
+| `PATHMARK_ACTIVITY_RETENTION_DAYS` | `30` | Automatic lifetime for recall/tool activity records; `0` disables age-based activity expiry. |
+| `PATHMARK_ACTIVITY_MAX_RECORDS` | `5000` | Physical cap for activity records; oldest activity is removed automatically. `0` disables the count cap. |
 | `PATHMARK_RERANK_COMMAND` | unset | Optional local hybrid reranker. Receives query/candidates as JSON on stdin and returns ranked memory ids. |
 | `PATHMARK_HYBRID_CANDIDATES` | `500` | Maximum candidates sent to the optional reranker. |
 | `PATHMARK_RETRIEVAL_TIMEOUT_MS` | `30000` | Timeout for the optional reranker. |
@@ -402,7 +413,7 @@ Pathmark stores newline-delimited JSON at:
 ~/.pathmark/memory/memory.jsonl
 ```
 
-`memory.jsonl` remains the canonical source of truth. Pathmark also maintains a derived, disposable search index at `memory.index.sqlite`. The index is rebuilt automatically when the JSONL file changes outside Pathmark, and it can be deleted safely while Pathmark is stopped.
+`memory.jsonl` remains the canonical source of truth. Pathmark also maintains a derived, disposable search index at `memory.index.v4.sqlite`. Index filenames are schema-versioned so old and new MCP processes can coexist during a rolling restart. The index is rebuilt automatically when the JSONL file changes outside Pathmark, and inactive index versions can be deleted safely after their processes stop.
 
 Each record is inspectable:
 
