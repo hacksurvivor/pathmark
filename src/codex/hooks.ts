@@ -75,6 +75,10 @@ function addPathmarkHooks(file: HooksFile): HooksFile {
     ...(next.hooks.PostToolUse ?? []),
     { matcher: "*", hooks: [{ type: "command", command: "pathmark codex observe", timeout: 10 }] },
   ];
+  next.hooks.PostToolUseFailure = [
+    ...(next.hooks.PostToolUseFailure ?? []),
+    { matcher: "*", hooks: [{ type: "command", command: "pathmark codex observe", timeout: 10 }] },
+  ];
   next.hooks.Stop = [
     ...(next.hooks.Stop ?? []),
     { hooks: [{ type: "command", command: "pathmark codex writeback", timeout: 30 }] },

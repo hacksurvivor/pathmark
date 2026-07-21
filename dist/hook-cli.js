@@ -9,7 +9,14 @@ export async function runPortableHook(event) {
         transcript_path: stringField(input, "transcript_path"),
         prompt: stringField(input, "prompt"),
         tool_name: stringField(input, "tool_name"),
-        tool_input: objectField(input, "tool_input"),
+        tool_input: field(input, "tool_input") ?? field(input, "toolInput"),
+        tool_response: field(input, "tool_response") ?? field(input, "toolResponse"),
+        tool_output: field(input, "tool_output") ?? field(input, "toolOutput"),
+        tool_result: field(input, "tool_result") ?? field(input, "toolResult"),
+        tool_use_id: stringField(input, "tool_use_id") ?? stringField(input, "toolUseId"),
+        call_id: stringField(input, "call_id") ?? stringField(input, "callId"),
+        duration_ms: numberField(input, "duration_ms") ?? numberField(input, "durationMs"),
+        timestamp: stringField(input, "timestamp"),
     };
     const hookEventName = stringField(input, "hook_event_name") ?? portableEventName(event);
     if (event === "session-start") {
@@ -68,9 +75,12 @@ async function readInput() {
 function stringField(input, key) {
     return typeof input[key] === "string" ? input[key] : undefined;
 }
-function objectField(input, key) {
+function field(input, key) {
+    return input[key];
+}
+function numberField(input, key) {
     const value = input[key];
-    return typeof value === "object" && value !== null && !Array.isArray(value) ? value : undefined;
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 function portableEventName(event) {
     if (event === "session-start")

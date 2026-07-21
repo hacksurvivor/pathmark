@@ -11,7 +11,14 @@ export async function runPortableHook(event: string | undefined): Promise<void> 
     transcript_path: stringField(input, "transcript_path"),
     prompt: stringField(input, "prompt"),
     tool_name: stringField(input, "tool_name"),
-    tool_input: objectField(input, "tool_input"),
+    tool_input: field(input, "tool_input") ?? field(input, "toolInput"),
+    tool_response: field(input, "tool_response") ?? field(input, "toolResponse"),
+    tool_output: field(input, "tool_output") ?? field(input, "toolOutput"),
+    tool_result: field(input, "tool_result") ?? field(input, "toolResult"),
+    tool_use_id: stringField(input, "tool_use_id") ?? stringField(input, "toolUseId"),
+    call_id: stringField(input, "call_id") ?? stringField(input, "callId"),
+    duration_ms: numberField(input, "duration_ms") ?? numberField(input, "durationMs"),
+    timestamp: stringField(input, "timestamp"),
   };
   const hookEventName = stringField(input, "hook_event_name") ?? portableEventName(event);
 
@@ -76,9 +83,13 @@ function stringField(input: Record<string, unknown>, key: string): string | unde
   return typeof input[key] === "string" ? input[key] : undefined;
 }
 
-function objectField(input: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
+function field(input: Record<string, unknown>, key: string): unknown {
+  return input[key];
+}
+
+function numberField(input: Record<string, unknown>, key: string): number | undefined {
   const value = input[key];
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function portableEventName(event: HookEvent): string {

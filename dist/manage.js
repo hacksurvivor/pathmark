@@ -147,9 +147,38 @@ async function importDrafts(file, namespace, redact, encryptionKey) {
             updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : undefined,
             expiresAt: typeof value.expiresAt === "string" ? value.expiresAt : undefined,
             supersedes: typeof value.supersedes === "string" ? value.supersedes : undefined,
+            activity: importedActivity(value.activity),
         });
     }
     return drafts;
+}
+function importedActivity(value) {
+    if (!isObject(value))
+        return undefined;
+    if (value.type === "recall" &&
+        typeof value.queryHash === "string" &&
+        Array.isArray(value.memoryIds) &&
+        value.memoryIds.every((id) => typeof id === "string") &&
+        Number.isInteger(value.memoryCount) &&
+        Number(value.memoryCount) >= 0) {
+        return value;
+    }
+    if (value.type === "tool" &&
+        typeof value.toolName === "string" &&
+        (value.status === "success" || value.status === "error" || value.status === "unknown") &&
+        (value.filesChanged === true || value.filesChanged === false || value.filesChanged === "unknown") &&
+        optionalStrings(value, ["callId", "commandPreview", "commandHash", "inputPreview", "inputHash", "outputPreview", "outputHash"]) &&
+        optionalNumbers(value, ["exitCode", "durationMs"]) &&
+        (value.changedFiles === undefined || (Array.isArray(value.changedFiles) && value.changedFiles.every((file) => typeof file === "string")))) {
+        return value;
+    }
+    return undefined;
+}
+function optionalStrings(value, keys) {
+    return keys.every((key) => value[key] === undefined || typeof value[key] === "string");
+}
+function optionalNumbers(value, keys) {
+    return keys.every((key) => value[key] === undefined || (typeof value[key] === "number" && Number.isFinite(value[key])));
 }
 function transcriptDrafts(raw, client, namespace, redact) {
     const parsed = JSON.parse(raw);

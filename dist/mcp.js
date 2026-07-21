@@ -5,13 +5,15 @@ import { synthesizeWithCommand } from "./chat.js";
 import { loadConfig } from "./config.js";
 import { jsonText, publicConfig, summarizeRecords, summarizeSearch, usedMemories } from "./format.js";
 import { redactSecrets } from "./redact.js";
+import { selectRelevantResults } from "./relevance.js";
 import { namespaceTag, PathmarkStore } from "./store.js";
+import { sessionTrace } from "./session-trace.js";
 export async function runMcpServer() {
     const config = loadConfig();
     const store = new PathmarkStore(config);
     const server = new McpServer({
         name: "pathmark",
-        version: "0.1.7",
+        version: "0.1.8",
     });
     server.registerTool("get_config", {
         title: "Get Pathmark configuration",
@@ -91,7 +93,7 @@ export async function runMcpServer() {
             kind: z.enum(["memory", "conclusion"]).optional(),
         },
     }, async ({ query, limit, tags, namespace, kind }) => {
-        const results = await store.search({ query, limit, tags: scopedTags(tags, namespace ?? config.defaultNamespace), kind });
+        const results = await relevantSearch(query, limit, scopedTags(tags, namespace ?? config.defaultNamespace), kind);
         return jsonText({
             context: summarizeSearch(results),
             usedMemories: usedMemories(results),
@@ -104,19 +106,39 @@ export async function runMcpServer() {
         inputSchema: {
             query: z.string().default("").describe("Task, repo, or question to retrieve memory for. Empty query returns recent records."),
             limit: z.number().int().min(1).max(30).optional(),
+            ids: z
+                .array(z.string().min(1))
+                .min(1)
+                .max(30)
+                .optional()
+                .describe("Exact memory IDs from a prior Pathmark context block. Preserves the original visible-recall set."),
             tags: z.array(z.string()).optional().describe("Optional tags to scope visible recall, such as the current workspace tag."),
             namespace: z.string().min(1).optional(),
             kind: z.enum(["memory", "conclusion"]).optional(),
+            includeRecords: z.boolean().optional().describe("Include a second full-record copy. Defaults to true for compatibility."),
         },
-    }, async ({ query, limit, tags, namespace, kind }) => {
-        const results = await store.search({ query, limit, tags: scopedTags(tags, namespace ?? config.defaultNamespace), kind });
+    }, async ({ query, limit, ids, tags, namespace, kind, includeRecords }) => {
+        const scoped = scopedTags(tags, namespace ?? config.defaultNamespace);
+        const selectedLimit = limit ?? config.maxSearchResults;
+        const results = ids
+            ? (await store.searchByIds({ ids, query, tags: scoped, kind })).slice(0, selectedLimit)
+            : await relevantSearch(query, limit, scoped, kind);
         return jsonText({
             mode: "transparent_recall",
             context: summarizeSearch(results),
             usedMemories: usedMemories(results),
-            records: results.map((result) => result.record),
+            ...(includeRecords === false ? {} : { records: results.map((result) => result.record) }),
         });
     });
+    server.registerTool("session_trace", {
+        title: "Session trace",
+        description: "Show a bounded chronological audit trail for one captured session: prompts, exact injected memory IDs, redacted tool inputs/results, and answers.",
+        inputSchema: {
+            sessionId: z.string().min(1).describe("Exact Codex or harness session ID."),
+            limit: z.number().int().min(1).max(500).optional(),
+            includeOutputs: z.boolean().optional().describe("Include redacted bounded tool output previews. Defaults to true."),
+        },
+    }, async ({ sessionId, limit, includeOutputs }) => jsonText(await sessionTrace(store, sessionId, { limit, includeOutputs })));
     server.registerTool("list_conclusions", {
         title: "List conclusions",
         description: "List saved durable conclusions.",
@@ -266,12 +288,7 @@ export async function runMcpServer() {
     await store.ensureReady();
     await server.connect(new StdioServerTransport());
     async function answerFromMemory(question, limit, tags, namespace, kind) {
-        const results = await store.search({
-            query: question,
-            limit,
-            tags: scopedTags(tags, namespace ?? config.defaultNamespace),
-            kind,
-        });
+        const results = await relevantSearch(question, limit, scopedTags(tags, namespace ?? config.defaultNamespace), kind);
         const answer = await synthesizeWithCommand({ config, question, context: results });
         return jsonText({
             answer: answer ?? null,
@@ -280,6 +297,13 @@ export async function runMcpServer() {
             usedMemories: usedMemories(results),
             records: results.map((result) => result.record),
         });
+    }
+    async function relevantSearch(query, limit, tags, kind) {
+        const selectedLimit = limit ?? config.maxSearchResults;
+        const candidateLimit = query.trim() ? Math.min(50, Math.max(20, selectedLimit * 4)) : selectedLimit;
+        const candidates = (await store.search({ query, limit: candidateLimit, tags, kind }))
+            .filter((result) => !result.record.tags.includes("pathmark-activity"));
+        return query.trim() ? selectRelevantResults(candidates, query, selectedLimit) : candidates.slice(0, selectedLimit);
     }
 }
 function scopedTags(tags, namespace) {

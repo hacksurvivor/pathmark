@@ -28,6 +28,7 @@ The package version, MCP server version, tag, and `docs/releases/v$VERSION.md` m
 
 ```bash
 pathmark codex status
+npm run canary:installed -- --session=<exact-session-id>
 ```
 
 Expected fields:
@@ -45,7 +46,7 @@ Confirm the canonical store and derived index are present:
 
 ```bash
 test -f ~/.pathmark/memory/memory.jsonl
-test -f ~/.pathmark/memory/memory.index.sqlite
+test -f ~/.pathmark/memory/memory.index.v4.sqlite
 ```
 
 ## GitHub and npm release

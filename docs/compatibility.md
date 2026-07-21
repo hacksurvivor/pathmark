@@ -40,6 +40,7 @@ That file holds the shared memory. Each harness can call the same tools:
 - `remember` to save a fact, decision, preference, or project note.
 - `create_conclusion` to save a higher-signal durable insight.
 - `recall_memory` to recover relevant context and show exactly which memory IDs, timestamps, sources, and matches were used.
+- `session_trace` to inspect the bounded chronological prompt, injected-memory, tool-result, and answer trail for one captured session.
 - `search_memory` and `get_context` to recover relevant context.
 - `ask_memory` to retrieve context and optionally synthesize an answer.
 
@@ -123,11 +124,21 @@ pathmark codex install --replace-legacy-hooks
 
 This removes old compatible hook commands from Codex without deleting memory files.
 
-Codex hooks inject memory automatically at session start/resume and before non-trivial prompts. Prompt-time recall is scoped to the current workspace or session and only injects matching memories. When matching memory is found, Pathmark also asks Codex to call scoped visible recall so the UI can show the exact `usedMemories`. You can also call it directly:
+Codex hooks inject memory automatically at session start/resume and before non-trivial prompts. Prompt-time recall is scoped to the current workspace or session, filters low-relevance and near-duplicate results, and only injects matching memories. When matching memory is found, Pathmark asks Codex to call scoped visible recall with the exact pre-capture memory IDs, so the UI shows the original `usedMemories` rather than the newly saved prompt. Automatic visible recall also uses `includeRecords: false` to avoid duplicating full text. You can call it directly without `ids` for a fresh search:
 
 ```text
 mcp__pathmark__recall_memory
 ```
+
+Visible recall is deliberately a pre-answer memory snapshot. Later shell commands and results belong to a separate audit surface:
+
+```text
+mcp__pathmark__session_trace {"sessionId":"<exact-session-id>"}
+```
+
+Codex `PostToolUse` and `PostToolUseFailure` hooks store structured, redacted activity when the host supplies it: command/input preview and hash, status, exit code, duration, output hash, and changed files. Output text is private by default; set `PATHMARK_CODEX_CAPTURE_TOOL_OUTPUTS=on` to retain a redacted preview capped at 2,000 characters. Activity expires after 30 days and is capped at 5,000 physical records by default. Stop or PreCompact writeback stores user turns and `final_answer` messages, not intermediate commentary. Existing cursors migrate once without duplicating previously captured user or final-answer turns; exact legacy commentary records are recoverably soft-deleted when their transcript phase, timestamp, and text match.
+
+Prompt-time recall searches the current workspace first and then a global fallback. Records whose project or namespace tag matches a named query term are preferred. Exact-ID visible recall omits the current workspace tag when the selected evidence legitimately spans projects. Session-start and prompt-time selection suppress legacy transport envelopes and assistant progress updates, while explicit `search_memory` calls can still find non-deleted raw records. Transcript ingestion unwraps `# Files mentioned`, `# Response annotations`, and `# Diff comments` envelopes to retain only the actual `My request for Codex` body and skips injected plugin, goal, and subagent context.
 
 Optional Codex-backed synthesis works when the MCP client cannot synthesize and Codex CLI has local auth:
 
@@ -187,7 +198,7 @@ Generate the combined MCP and automatic-hook configuration:
 pathmark setup gemini-cli --json
 ```
 
-The generated `SessionStart`, `BeforeAgent`, `AfterTool`, and `AfterAgent` entries use Gemini CLI's stdin/stdout hook contract. They call `pathmark hook ...`, inject scoped memory as `additionalContext`, and capture prompt, response, and compact tool records locally.
+The generated `SessionStart`, `BeforeAgent`, `AfterTool`, and `AfterAgent` entries use Gemini CLI's stdin/stdout hook contract. They call `pathmark hook ...`, inject scoped memory as `additionalContext`, and capture prompt, response, and bounded structured tool records locally when the hook payload includes results.
 
 For MCP-only operation, use the same local stdio shape:
 

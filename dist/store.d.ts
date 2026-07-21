@@ -1,4 +1,4 @@
-import type { PathmarkConfig, PathmarkRecord, PathmarkRecordDraft, PathmarkRecordKind, SearchResult, StoreDiagnosis, StoreMaintenanceResult } from "./types.js";
+import type { PathmarkConfig, ActivityRetentionResult, PathmarkActivity, PathmarkRecord, PathmarkRecordDraft, PathmarkRecordKind, SearchResult, StoreDiagnosis, StoreMaintenanceResult } from "./types.js";
 interface StoreHealth {
     indexFile: string;
     invalidRecordCount: number;
@@ -45,17 +45,29 @@ export declare class PathmarkStore {
         kind?: PathmarkRecordKind;
         limit?: number;
     }): Promise<PathmarkRecord[]>;
+    enforceActivityRetention(options: {
+        retentionDays: number;
+        maxRecords: number;
+    }): Promise<ActivityRetentionResult>;
     health(): Promise<StoreHealth>;
     delete(id: string): Promise<PathmarkRecord | undefined>;
+    deleteMany(ids: string[]): Promise<number>;
     get(id: string, options?: {
         includeDeleted?: boolean;
     }): Promise<PathmarkRecord | undefined>;
+    searchByIds(input: {
+        ids: string[];
+        query: string;
+        tags?: string[];
+        kind?: PathmarkRecordKind;
+    }): Promise<SearchResult[]>;
     update(id: string, patch: {
         text?: string;
         tags?: string[];
         source?: string;
         expiresAt?: string | null;
     }): Promise<PathmarkRecord | undefined>;
+    updateActivities(updates: Map<string, PathmarkActivity>): Promise<number>;
     supersede(id: string, input: PathmarkRecordDraft): Promise<PathmarkRecord | undefined>;
     diagnose(): Promise<StoreDiagnosis>;
     purge(options: PurgeOptions): Promise<StoreMaintenanceResult>;

@@ -4,16 +4,18 @@ import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:f
 import os from "node:os";
 import path from "node:path";
 import { observe, prompt, recall, writeback } from "../dist/codex/capture.js";
+import { captureToolActivity } from "../dist/codex/activity.js";
 import { hasPathmarkMcp, installPathmarkMcp, pathmarkMcpStatus, removePathmarkMcp } from "../dist/codex/config-file.js";
 import { cursorPath, readCursor, writeCursor } from "../dist/codex/cursor.js";
 import { hookStatus, installPathmarkHooks, uninstallPathmarkHooks } from "../dist/codex/hooks.js";
 import { codexConfigPath, codexCursorDir, codexHome, codexHooksPath, pathmarkStoreDir } from "../dist/codex/paths.js";
 import { summarizeToolUse } from "../dist/codex/tool-summary.js";
-import { readCodexTranscript } from "../dist/codex/transcript.js";
+import { readCodexToolResults, readCodexTranscript } from "../dist/codex/transcript.js";
 import { loadConfig } from "../dist/config.js";
 import { deterministicId } from "../dist/ids.js";
 import { redactSecrets } from "../dist/redact.js";
 import { PathmarkStore } from "../dist/store.js";
+import { sessionTrace } from "../dist/session-trace.js";
 
 const temp = await mkdtemp(path.join(os.tmpdir(), "pathmark-codex-adapter-"));
 
@@ -80,6 +82,59 @@ try {
   assert.equal(second.created, false);
   assert.equal(await store.count(), 1);
   assert.equal((await jsonlLines("base")).length, 1);
+
+  const activityCompactStore = createStore("activity-compact");
+  for (const event of ["first", "second"]) {
+    await activityCompactStore.addRecord({
+      kind: "memory",
+      text: "ran: npm test",
+      tags: ["pathmark-activity", "activity-tool", "role-tool", "session:compact-session", `event:${event}`],
+      source: "codex:session:compact-session",
+      activity: {
+        type: "tool",
+        toolName: "functions.exec_command",
+        callId: "reused-call-id",
+        status: "success",
+        filesChanged: "unknown",
+      },
+    });
+  }
+  const activityCompactResult = await activityCompactStore.compact({ dryRun: false });
+  assert.equal(activityCompactResult.removedRecords, 0);
+  assert.equal((await activityCompactStore.recordsWithTags(["session:compact-session"])).length, 2);
+
+  const boundedActivityStore = createStore("activity-retention");
+  for (const [index, createdAt] of [
+    "2026-07-21T00:00:00.000Z",
+    "2026-07-21T00:01:00.000Z",
+    "2026-07-21T00:02:00.000Z",
+  ].entries()) {
+    await boundedActivityStore.addRecord({
+      id: `activity-retention-${index}`,
+      kind: "memory",
+      text: `activity ${index}`,
+      tags: ["pathmark-activity", "activity-tool", "role-tool", "session:retention-session"],
+      source: "codex:session:retention-session",
+      createdAt,
+      activity: {
+        type: "tool",
+        toolName: "functions.exec_command",
+        callId: `retention-${index}`,
+        status: "success",
+        filesChanged: "unknown",
+      },
+    });
+  }
+  const boundedActivityFile = loadConfig().memoryFile;
+  await writeFile(boundedActivityFile, `${await readFile(boundedActivityFile, "utf8")}{invalid-retention-fixture\n`, "utf8");
+  const boundedActivityResult = await boundedActivityStore.enforceActivityRetention({ retentionDays: 0, maxRecords: 2 });
+  assert.deepEqual(boundedActivityResult, { applied: true, removedRecords: 1 });
+  assert.deepEqual(
+    (await boundedActivityStore.recordsWithTags(["session:retention-session"])).map((record) => record.id).sort(),
+    ["activity-retention-1", "activity-retention-2"],
+  );
+  assert.equal((await readFile(boundedActivityFile, "utf8")).includes("{invalid-retention-fixture"), true);
+  assert.equal((await boundedActivityStore.health()).invalidRecordCount, 1);
 
   const concurrentStore = createStore("concurrent");
   const concurrentId = deterministicId(["capture", "concurrent"]);
@@ -253,6 +308,17 @@ try {
         payload: {
           type: "message",
           role: "assistant",
+          phase: "commentary",
+          content: [{ type: "output_text", text: "I’m checking the Pathmark decision now." }],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-06-29T00:00:04.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          phase: "final_answer",
           content: [{ type: "output_text", text: "Decision captured." }],
         },
       }),
@@ -264,6 +330,85 @@ try {
   assert.equal(turns.length, 2);
   assert.equal(turns[0].role, "user");
   assert.equal(turns[1].role, "assistant");
+  assert.equal(turns[1].text, "Decision captured.");
+
+  const transportTranscript = path.join(temp, "transport-transcript.jsonl");
+  const unwrappedRequest = "Fix exact recall without duplicating Codex transport metadata.";
+  await writeFile(
+    transportTranscript,
+    [
+      JSON.stringify({
+        timestamp: "2026-06-29T00:00:04.100Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "<recommended_plugins>injected catalog</recommended_plugins>" }],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-06-29T00:00:04.200Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "<codex_internal_context source=\"goal\">continue</codex_internal_context>" }],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-06-29T00:00:04.300Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "# Files mentioned by the user:\n\n## attachment.txt" }],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-06-29T00:00:04.400Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: `# Response annotations:\n<response-annotations>transport</response-annotations>\n\n## My request for Codex:\n${unwrappedRequest}`,
+            },
+          ],
+        },
+      }),
+    ].join("\n") + "\n",
+    "utf8",
+  );
+  const transportTurns = await readCodexTranscript(transportTranscript);
+  assert.deepEqual(
+    transportTurns.map((turn) => ({ role: turn.role, text: turn.text })),
+    [{ role: "user", text: unwrappedRequest }],
+  );
+
+  const toolResultTranscript = path.join(temp, "tool-result-transcript.jsonl");
+  await writeFile(
+    toolResultTranscript,
+    `${JSON.stringify({
+      timestamp: "2026-06-29T00:00:04.000Z",
+      type: "response_item",
+      payload: {
+        type: "custom_tool_call_output",
+        call_id: "exec-reconcile",
+        output: [
+          { type: "input_text", text: "Script completed\nWall time 1.6 seconds\nOutput:\n" },
+          { type: "input_text", text: "reconciled output" },
+        ],
+      },
+    })}\n`,
+    "utf8",
+  );
+  const parsedToolResults = await readCodexToolResults(toolResultTranscript);
+  assert.deepEqual(
+    parsedToolResults.map(({ callId, status, exitCode, durationMs }) => ({ callId, status, exitCode, durationMs })),
+    [{ callId: "exec-reconcile", status: "success", exitCode: 0, durationMs: 1600 }],
+  );
 
   const cursorStoreDir = path.join(temp, "cursor");
   assert.equal(await readCursor(cursorStoreDir, "session-a"), 0);
@@ -523,6 +668,118 @@ try {
     "edited: src/example.ts",
   );
 
+  const structuredTool = captureToolActivity({
+    tool_name: "functions.exec_command",
+    tool_input: { cmd: `npm test -- TOKEN=${fakeBearerValue}` },
+    tool_response: { output: `tests passed TOKEN=${fakeBearerValue}`, exit_code: 0, wall_time_seconds: 1.25 },
+    tool_use_id: "call-structured",
+  }, { includeOutputPreview: true });
+  assert.ok(structuredTool);
+  assert.equal(structuredTool.activity.status, "success");
+  assert.equal(structuredTool.activity.exitCode, 0);
+  assert.equal(structuredTool.activity.durationMs, 1250);
+  assert.equal(structuredTool.activity.callId, "call-structured");
+  assert.equal(structuredTool.activity.commandPreview.includes(fakeBearerValue), false);
+  assert.equal(structuredTool.activity.outputPreview.includes(fakeBearerValue), false);
+  assert.equal(structuredTool.activity.commandPreview.length <= 2_000, true);
+  assert.equal(structuredTool.activity.outputPreview.length <= 2_000, true);
+
+  const failedTool = captureToolActivity({
+    tool_name: "custom.deploy",
+    tool_input: { target: "staging" },
+    tool_result: { error: "deployment failed" },
+    call_id: "call-failed",
+  }, { includeOutputPreview: true });
+  assert.ok(failedTool);
+  assert.equal(failedTool.activity.status, "error");
+  assert.equal(failedTool.activity.callId, "call-failed");
+  assert.equal(failedTool.activity.inputPreview, '{"target":"staging"}');
+  assert.equal(failedTool.activity.outputPreview, "deployment failed");
+
+  const nestedInputTrue = captureToolActivity({
+    tool_name: "custom.scan",
+    tool_input: { path: "/workspace", options: { recursive: true, filters: ["ts", { hidden: false }] } },
+  });
+  const nestedInputFalse = captureToolActivity({
+    tool_name: "custom.scan",
+    tool_input: { path: "/workspace", options: { recursive: false, filters: ["ts", { hidden: false }] } },
+  });
+  const nestedInputReordered = captureToolActivity({
+    tool_name: "custom.scan",
+    tool_input: { options: { filters: ["ts", { hidden: false }], recursive: true }, path: "/workspace" },
+  });
+  assert.equal(
+    nestedInputTrue.activity.inputPreview,
+    '{"options":{"filters":["ts",{"hidden":false}],"recursive":true},"path":"/workspace"}',
+  );
+  assert.notEqual(nestedInputTrue.activity.inputHash, nestedInputFalse.activity.inputHash);
+  assert.equal(nestedInputTrue.activity.inputHash, nestedInputReordered.activity.inputHash);
+
+  const patchActivity = captureToolActivity({
+    tool_name: "functions.apply_patch",
+    tool_input: "*** Begin Patch\n*** Update File: src/example.ts\n@@\n-old\n+new\n*** End Patch\n",
+  });
+  assert.ok(patchActivity);
+  assert.equal(patchActivity.activity.status, "unknown");
+  assert.equal(patchActivity.activity.filesChanged, true);
+  assert.deepEqual(patchActivity.activity.changedFiles, ["src/example.ts"]);
+
+  const boundedOutputTool = captureToolActivity({
+    tool_name: "custom.report",
+    tool_input: { format: "text" },
+    tool_response: { content: [{ text: "x".repeat(3_000) }] },
+  }, { includeOutputPreview: true });
+  assert.ok(boundedOutputTool);
+  assert.equal(boundedOutputTool.activity.status, "success");
+  assert.equal(boundedOutputTool.activity.outputPreview.length, 2_000);
+  assert.equal(boundedOutputTool.activity.filesChanged, "unknown");
+
+  const splitOutputTool = captureToolActivity({
+    tool_name: "custom.compiler",
+    tool_input: { target: "release" },
+    tool_response: { stdout: "compiled", stderr: "one warning" },
+  }, { includeOutputPreview: true });
+  assert.equal(splitOutputTool.activity.outputPreview, "compiled\none warning");
+
+  const codexEnvelopeTool = captureToolActivity({
+    tool_name: "functions.exec_command",
+    tool_input: { cmd: "npm test" },
+    tool_response: "Script completed\nWall time 1.75 seconds\nOutput:\npassed",
+  });
+  assert.equal(codexEnvelopeTool.activity.exitCode, 0);
+  assert.equal(codexEnvelopeTool.activity.durationMs, 1750);
+
+  const failedEnvelopeTool = captureToolActivity({
+    tool_name: "functions.exec_command",
+    tool_input: { cmd: "npm test" },
+    tool_response: "Process exited with code 2\nWall time: 450 ms\nOutput:\nfailed",
+  });
+  assert.equal(failedEnvelopeTool.activity.exitCode, 2);
+  assert.equal(failedEnvelopeTool.activity.durationMs, 450);
+  assert.equal(failedEnvelopeTool.activity.status, "error");
+
+  const privateOutputTool = captureToolActivity({
+    tool_name: "custom.compiler",
+    tool_input: { target: "release" },
+    tool_response: { output: "private build output" },
+  });
+  assert.equal("outputPreview" in privateOutputTool.activity, false);
+  assert.equal(typeof privateOutputTool.activity.outputHash, "string");
+
+  createStore("tool-result-reconciliation");
+  await observe({
+    session_id: "reconcile-session",
+    tool_name: "functions.exec_command",
+    tool_input: { cmd: "npm test" },
+    tool_response: { output: "reconciled output" },
+    tool_use_id: "exec-reconcile",
+  });
+  await writeback({ session_id: "reconcile-session", transcript_path: toolResultTranscript });
+  const reconciledTrace = await sessionTrace(new PathmarkStore(loadConfig()), "reconcile-session");
+  const reconciledTool = reconciledTrace.entries.find((entry) => entry.callId === "exec-reconcile");
+  assert.equal(reconciledTool.exitCode, 0);
+  assert.equal(reconciledTool.durationMs, 1600);
+
   createStore("capture");
   const nudge = await prompt({
     session_id: "capture-session",
@@ -530,8 +787,27 @@ try {
   });
   assert.equal(nudge.includes("<pathmark-memory-nudge>"), true);
   assert.equal(await prompt({ session_id: "capture-session", prompt: "ok." }), "");
+  assert.equal(
+    await prompt({
+      session_id: "capture-session",
+      prompt: "<recommended_plugins>injected prompt catalog</recommended_plugins>",
+    }),
+    "",
+  );
+  const normalizedPrompt = "Normalize this Codex transport request.";
+  await prompt({
+    session_id: "capture-session",
+    prompt: `# Files mentioned by the user:\n\n## fixture.txt\n\n## My request for Codex:\n${normalizedPrompt}`,
+  });
+  const normalizedPromptRecords = await new PathmarkStore(loadConfig()).recordsWithTags(
+    ["session:capture-session", "role-user"],
+    { limit: 100 },
+  );
+  assert.equal(normalizedPromptRecords.some((record) => record.text === normalizedPrompt), true);
+  assert.equal(normalizedPromptRecords.some((record) => record.text.startsWith("# Files mentioned")), false);
+  assert.equal(normalizedPromptRecords.some((record) => record.text.includes("injected prompt catalog")), false);
 
-  createStore("proactive-prompt");
+  const proactiveStore = createStore("proactive-prompt");
   await prompt({
     cwd: "/workspace/pathmark",
     session_id: "proactive-source",
@@ -549,6 +825,118 @@ try {
   assert.equal(proactiveContext.includes("Visible recall request:"), true);
   assert.equal(proactiveContext.includes("mcp__pathmark__recall_memory"), true);
   assert.equal(proactiveContext.includes('"tags":["workspace:'), true);
+  const visibleArgsMatch = proactiveContext.match(/recall_memory with (\{.*\}) so the UI/);
+  assert.notEqual(visibleArgsMatch, null);
+  const visibleArgs = JSON.parse(visibleArgsMatch[1]);
+  assert.equal(Array.isArray(visibleArgs.ids), true);
+  assert.equal(visibleArgs.ids.length, 1);
+  assert.equal(visibleArgs.includeRecords, false);
+  const targetPromptRecord = (await proactiveStore.search({ query: "Continue the launch checklist now", limit: 5 })).find(
+    (result) => result.record.text === "Continue the launch checklist now.",
+  );
+  assert.notEqual(targetPromptRecord, undefined);
+  assert.equal(visibleArgs.ids.includes(targetPromptRecord.record.id), false);
+  const exactVisibleResults = await proactiveStore.searchByIds({
+    ids: visibleArgs.ids,
+    query: visibleArgs.query,
+    tags: visibleArgs.tags,
+  });
+  assert.deepEqual(
+    exactVisibleResults.map((result) => result.record.id),
+    visibleArgs.ids,
+  );
+  assert.equal(exactVisibleResults[0].record.text, "Remember launch checklist requires trusted publisher.");
+  const proactiveTrace = await sessionTrace(proactiveStore, "proactive-target");
+  const proactiveRecallEntry = proactiveTrace.entries.find((entry) => entry.type === "recall");
+  assert.ok(proactiveRecallEntry);
+  assert.deepEqual(proactiveRecallEntry.memoryIds, visibleArgs.ids);
+  assert.equal(proactiveRecallEntry.memoryCount, visibleArgs.ids.length);
+  assert.equal(typeof proactiveRecallEntry.queryHash, "string");
+
+  const crossProjectStore = createStore("cross-project-recall");
+  await prompt({
+    cwd: "/workspace/meetily",
+    session_id: "cross-project-source",
+    prompt: "Meetily transcription design uses a local-first capture architecture.",
+  });
+  const crossProjectContext = await prompt({
+    cwd: "/workspace/pathmark",
+    session_id: "cross-project-target",
+    prompt: "Recall the Meetily transcription design.",
+  });
+  assert.equal(crossProjectContext.includes("Meetily transcription design uses a local-first capture architecture"), true);
+  const crossProjectArgsMatch = crossProjectContext.match(/recall_memory with (\{.*\}) so the UI/);
+  assert.ok(crossProjectArgsMatch);
+  const crossProjectArgs = JSON.parse(crossProjectArgsMatch[1]);
+  assert.equal("tags" in crossProjectArgs, false);
+  const crossProjectExact = await crossProjectStore.searchByIds({
+    ids: crossProjectArgs.ids,
+    query: crossProjectArgs.query,
+  });
+  assert.deepEqual(crossProjectExact.map((result) => result.record.id), crossProjectArgs.ids);
+
+  createStore("workspace-first-recall");
+  await prompt({
+    cwd: "/workspace/huncho",
+    session_id: "workspace-first-huncho-source",
+    prompt: "Restarted Codex after installing Pathmark; Huncho session trace exposes eighteen tools.",
+  });
+  await prompt({
+    cwd: "/workspace/co-ode",
+    session_id: "workspace-first-coode-source",
+    prompt: "Restarted Codex and installed Pathmark while repairing unrelated mission orchestration.",
+  });
+  const workspaceFirstContext = await prompt({
+    cwd: "/workspace/huncho",
+    session_id: "workspace-first-huncho-target",
+    prompt: "I restarted Codex after installing Pathmark.",
+  });
+  assert.equal(workspaceFirstContext.includes("Huncho session trace exposes eighteen tools"), true);
+  assert.equal(workspaceFirstContext.includes("unrelated mission orchestration"), false);
+  const workspaceFirstArgsMatch = workspaceFirstContext.match(/recall_memory with (\{.*\}) so the UI/);
+  assert.ok(workspaceFirstArgsMatch);
+  const workspaceFirstArgs = JSON.parse(workspaceFirstArgsMatch[1]);
+  assert.equal(Array.isArray(workspaceFirstArgs.tags), true);
+  assert.equal(workspaceFirstArgs.tags.length, 1);
+  assert.equal(workspaceFirstArgs.ids.length, 1);
+
+  createStore("prompt-relevance");
+  await prompt({
+    cwd: "/workspace/pathmark",
+    session_id: "relevance-source",
+    prompt: "SovaMax email needs company ID format for ERP transfer.",
+  });
+  await prompt({
+    cwd: "/workspace/pathmark",
+    session_id: "relevance-duplicate",
+    prompt: "SovaMax email needs the company ID format for ERP transfer and IT automation.",
+  });
+  await prompt({
+    cwd: "/workspace/pathmark",
+    session_id: "relevance-noise",
+    prompt: "Meetily is a local transcription project with company templates and email exports.",
+  });
+  const relevanceContext = await prompt({
+    cwd: "/workspace/pathmark",
+    session_id: "relevance-target",
+    prompt: "Draft the SovaMax email requesting company ID format for ERP transfer.",
+  });
+  assert.equal(relevanceContext.includes("SovaMax email needs company ID format for ERP transfer"), true);
+  assert.equal(relevanceContext.includes("IT automation"), false);
+  assert.equal(relevanceContext.includes("Meetily"), false);
+
+  createStore("low-information-recall");
+  await prompt({
+    cwd: "/workspace/pathmark",
+    session_id: "low-information-source",
+    prompt: "We need a totally new name and should collect good naming ideas.",
+  });
+  const lowInformationContext = await prompt({
+    cwd: "/workspace/pathmark",
+    session_id: "low-information-target",
+    prompt: "So, are we totally good?",
+  });
+  assert.equal(lowInformationContext, "");
 
   const previousVisibleRecall = process.env.PATHMARK_CODEX_VISIBLE_RECALL;
   try {
@@ -589,11 +977,46 @@ try {
     restoreEnv("PATHMARK_CODEX_PROACTIVE_RECALL", previousProactiveRecall);
   }
 
+  const previousCaptureToolOutputs = process.env.PATHMARK_CODEX_CAPTURE_TOOL_OUTPUTS;
+  process.env.PATHMARK_CODEX_CAPTURE_TOOL_OUTPUTS = "on";
   await observe({
     session_id: "capture-session",
     tool_name: "functions.exec_command",
     tool_input: { cmd: "npm run build" },
+    tool_response: { output: "Build completed successfully.", exit_code: 0, wall_time_seconds: 2.4 },
+    tool_use_id: "call-build",
   });
+  restoreEnv("PATHMARK_CODEX_CAPTURE_TOOL_OUTPUTS", previousCaptureToolOutputs);
+
+  const captureTraceStore = new PathmarkStore(loadConfig());
+  const trace = await sessionTrace(captureTraceStore, "capture-session");
+  const toolEntry = trace.entries.find((entry) => entry.type === "tool" && entry.callId === "call-build");
+  assert.ok(toolEntry);
+  assert.equal(toolEntry.status, "success");
+  assert.equal(toolEntry.exitCode, 0);
+  assert.equal(toolEntry.durationMs, 2400);
+  assert.equal(toolEntry.outputPreview, "Build completed successfully.");
+  const compactTrace = await sessionTrace(captureTraceStore, "capture-session", { includeOutputs: false });
+  const compactToolEntry = compactTrace.entries.find((entry) => entry.type === "tool" && entry.callId === "call-build");
+  assert.equal("outputPreview" in compactToolEntry, false);
+  assert.equal(typeof compactToolEntry.outputHash, "string");
+  const storedBuildActivity = (await captureTraceStore.recordsWithTags(["session:capture-session", "activity-tool"]))
+    .find((record) => record.activity?.type === "tool" && record.activity.callId === "call-build");
+  assert.ok(storedBuildActivity?.expiresAt);
+  assert.equal(Date.parse(storedBuildActivity.expiresAt) > Date.now() + 29 * 24 * 60 * 60 * 1_000, true);
+
+  await observe({
+    session_id: "private-output-session",
+    tool_name: "functions.exec_command",
+    tool_input: { cmd: "npm test" },
+    tool_response: { output: "customer-private-output", exit_code: 0 },
+    tool_use_id: "call-private-output",
+  });
+  const privateOutputTrace = await sessionTrace(new PathmarkStore(loadConfig()), "private-output-session");
+  const privateOutputEntry = privateOutputTrace.entries.find((entry) => entry.callId === "call-private-output");
+  assert.ok(privateOutputEntry);
+  assert.equal("outputPreview" in privateOutputEntry, false);
+  assert.equal(typeof privateOutputEntry.outputHash, "string");
 
   const previousLockTimeoutMs = process.env.PATHMARK_LOCK_TIMEOUT_MS;
   const previousStaleLockMs = process.env.PATHMARK_STALE_LOCK_MS;
@@ -907,6 +1330,151 @@ try {
   assert.equal(typeof legacyCursorState.transcriptFingerprint, "string");
   assert.equal(legacyCursorState.transcriptFingerprint.length > 0, true);
 
+  const parserMigrationStore = createStore("parser-version-migration");
+  const parserMigrationStoreDir = loadConfig().storeDir;
+  const parserMigrationSession = "parser-version-session";
+  const parserMigrationTranscript = path.join(temp, "parser-version-transcript.jsonl");
+  const migrationUserText = "Preserve this user turn during parser migration.";
+  const migrationFinalText = "Preserve this final answer during parser migration.";
+  const migrationInjectedText = "<codex_internal_context source=\"goal\">Do not store this injected goal.</codex_internal_context>";
+  const migrationUnwrappedText = "Retain this real request after transport migration.";
+  const migrationWrapperText = `# Response annotations:\n<response-annotations>legacy</response-annotations>\n\n## My request for Codex:\n${migrationUnwrappedText}`;
+  await parserMigrationStore.addRecords([
+    {
+      id: "parser-migration-user",
+      kind: "memory",
+      text: migrationUserText,
+      tags: ["codex-raw", "codex-session", "role-user", `session:${parserMigrationSession}`],
+      source: `codex:session:${parserMigrationSession}`,
+      createdAt: "2026-06-29T00:45:20.000Z",
+    },
+    {
+      id: "parser-migration-final",
+      kind: "memory",
+      text: migrationFinalText,
+      tags: ["codex-raw", "codex-session", "role-assistant", `session:${parserMigrationSession}`],
+      source: `codex:session:${parserMigrationSession}`,
+      createdAt: "2026-06-29T00:45:22.000Z",
+    },
+    {
+      id: "parser-migration-commentary",
+      kind: "memory",
+      text: "This progress update must not be captured.",
+      tags: ["codex-raw", "codex-session", "role-assistant", `session:${parserMigrationSession}`],
+      source: `codex:session:${parserMigrationSession}`,
+      createdAt: "2026-06-29T00:45:21.000Z",
+    },
+    {
+      id: "parser-migration-injected-user",
+      kind: "memory",
+      text: migrationInjectedText,
+      tags: ["codex-raw", "codex-session", "role-user", `session:${parserMigrationSession}`],
+      source: `codex:session:${parserMigrationSession}`,
+      createdAt: "2026-06-29T00:45:18.000Z",
+    },
+    {
+      id: "parser-migration-wrapper-user",
+      kind: "memory",
+      text: migrationWrapperText,
+      tags: ["codex-raw", "codex-session", "role-user", `session:${parserMigrationSession}`],
+      source: `codex:session:${parserMigrationSession}`,
+      createdAt: "2026-06-29T00:45:19.000Z",
+    },
+    {
+      id: "parser-migration-orphan-wrapper",
+      kind: "memory",
+      text: "# Diff comments:\nLegacy immediate-hook wrapper without a transcript-identical copy.",
+      tags: ["codex-raw", "codex-session", "role-user", `session:${parserMigrationSession}`],
+      source: `codex:session:${parserMigrationSession}`,
+      createdAt: "2026-06-29T00:45:17.000Z",
+    },
+  ]);
+  await writeCursor(parserMigrationStoreDir, parserMigrationSession, 5, {
+    transcriptFingerprint: "legacy-parser-fingerprint",
+  });
+  await writeFile(
+    parserMigrationTranscript,
+    [
+      JSON.stringify({
+        timestamp: "2026-06-29T00:45:18.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: migrationInjectedText }],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-06-29T00:45:19.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: migrationWrapperText }],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-06-29T00:45:20.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: migrationUserText }],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-06-29T00:45:21.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          phase: "commentary",
+          content: [{ type: "output_text", text: "This progress update must not be captured." }],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-06-29T00:45:22.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          phase: "final_answer",
+          content: [{ type: "output_text", text: migrationFinalText }],
+        },
+      }),
+    ].join("\n") + "\n",
+    "utf8",
+  );
+  await writeback({ session_id: parserMigrationSession, transcript_path: parserMigrationTranscript });
+  const parserMigrationRecords = await parserMigrationStore.all();
+  assert.equal(parserMigrationRecords.filter((record) => record.text === migrationUserText).length, 1);
+  assert.equal(parserMigrationRecords.filter((record) => record.text === migrationFinalText).length, 1);
+  assert.equal(parserMigrationRecords.filter((record) => record.text === migrationUnwrappedText).length, 1);
+  assert.equal(parserMigrationRecords.some((record) => record.text === migrationInjectedText), false);
+  assert.equal(parserMigrationRecords.some((record) => record.text === migrationWrapperText), false);
+  assert.equal(parserMigrationRecords.some((record) => record.text.includes("progress update")), false);
+  const deletedCommentary = (await parserMigrationStore.all({ includeDeleted: true })).find(
+    (record) => record.id === "parser-migration-commentary",
+  );
+  assert.equal(typeof deletedCommentary?.deletedAt, "string");
+  const deletedInjectedUser = (await parserMigrationStore.all({ includeDeleted: true })).find(
+    (record) => record.id === "parser-migration-injected-user",
+  );
+  const deletedWrapperUser = (await parserMigrationStore.all({ includeDeleted: true })).find(
+    (record) => record.id === "parser-migration-wrapper-user",
+  );
+  const deletedOrphanWrapper = (await parserMigrationStore.all({ includeDeleted: true })).find(
+    (record) => record.id === "parser-migration-orphan-wrapper",
+  );
+  assert.equal(typeof deletedInjectedUser?.deletedAt, "string");
+  assert.equal(typeof deletedWrapperUser?.deletedAt, "string");
+  assert.equal(typeof deletedOrphanWrapper?.deletedAt, "string");
+  const parserMigrationCursor = JSON.parse(
+    await readFile(cursorPath(parserMigrationStoreDir, parserMigrationSession), "utf8"),
+  );
+  assert.equal(parserMigrationCursor.count, 3);
+  assert.equal(parserMigrationCursor.parserVersion, 5);
+
   const replacementStore = createStore("cursor-replacement");
   const replacementStoreDir = loadConfig().storeDir;
   const replacementTranscript = path.join(temp, "cursor-replacement-transcript.jsonl");
@@ -989,10 +1557,16 @@ try {
     source: "codex:session:rotated-session",
     createdAt: "2026-06-29T00:40:00.000Z",
   });
-  await writeCursor(rotatedStoreDir, "rotated-session", 5);
+  await writeCursor(rotatedStoreDir, "rotated-session", 5, {
+    transcriptFingerprint: "replaced-transcript-fingerprint",
+    parserVersion: 5,
+  });
   await writeFile(rotatedTranscript, rotatedTranscriptContent, "utf8");
   await writeback({ session_id: "rotated-session", transcript_path: rotatedTranscript });
-  await writeCursor(rotatedStoreDir, "rotated-session", 5);
+  await writeCursor(rotatedStoreDir, "rotated-session", 5, {
+    transcriptFingerprint: "replaced-transcript-fingerprint",
+    parserVersion: 5,
+  });
   await writeFile(rotatedTranscript, rotatedTranscriptContent, "utf8");
   await utimes(rotatedTranscript, new Date("2026-06-29T00:47:00.000Z"), new Date("2026-06-29T00:47:00.000Z"));
   await writeback({ session_id: "rotated-session", transcript_path: rotatedTranscript });
@@ -1062,6 +1636,22 @@ try {
     source: "codex:session:recall-session",
     createdAt: "2026-06-29T00:00:09.000Z",
   });
+  for (const [id, text, role] of [
+    ["recommended", "<recommended_plugins>Pathmark plugin catalog boilerplate</recommended_plugins>", "user"],
+    ["files", "# Files mentioned by the user:\nPathmark attachment transport envelope.", "user"],
+    ["annotations", "# Response annotations:\nPathmark annotation transport envelope.", "user"],
+    ["internal", "<codex_internal_context source=\"goal\">Pathmark internal continuation.</codex_internal_context>", "user"],
+    ["progress", "I’m checking the Pathmark session-start recall records now.", "assistant"],
+  ]) {
+    await recallStore.addRecord({
+      id: deterministicId(["recall", "low-signal", id]),
+      kind: "memory",
+      text,
+      tags: ["codex-raw", "codex-session", `role-${role}`, "session:recall-session"],
+      source: "codex:session:recall-session",
+      createdAt: "2026-06-29T00:00:09.500Z",
+    });
+  }
   const recallOutput = await recall({
     cwd: "/workspace/pathmark",
     session_id: "recall-session",
@@ -1070,6 +1660,11 @@ try {
   assert.equal(recallOutput.includes("Other project decision from a different session"), false);
   assert.equal(recallOutput.includes("Other project decision filler"), false);
   assert.equal(recallOutput.includes("Legacy recall relevant project decision"), true);
+  assert.equal(recallOutput.includes("plugin catalog boilerplate"), false);
+  assert.equal(recallOutput.includes("attachment transport envelope"), false);
+  assert.equal(recallOutput.includes("annotation transport envelope"), false);
+  assert.equal(recallOutput.includes("internal continuation"), false);
+  assert.equal(recallOutput.includes("session-start recall records now"), false);
   assert.equal(recallOutput.includes(["sk", "recall", "fixture"].join("-")), false);
   assert.equal(recallOutput.includes("[REDACTED]"), true);
   assert.equal(recallOutput.includes(recallTail), false);
@@ -1239,10 +1834,11 @@ try {
   assert.deepEqual(await hookStatus(hooksPath), { pathmark: true, legacy: false });
   const firstInstalledHooksText = await readFile(hooksPath, "utf8");
   assert.equal(firstInstalledHooksText.includes("echo existing-session-start"), true);
+  assert.equal(firstInstalledHooksText.includes('"PostToolUseFailure"'), true);
   assert.equal(firstInstalledHooksText.includes("echo keep-me"), true);
   assert.equal(firstInstalledHooksText.includes("echo unrelated"), true);
   assert.equal(firstInstalledHooksText.includes("codex-legacy"), false);
-  assert.equal(pathmarkHookCommandCount(firstInstalledHooksText), 5);
+  assert.equal(pathmarkHookCommandCount(firstInstalledHooksText), 6);
   assert.equal((await readFile(path.join(legacyDataDir, "memory.jsonl"), "utf8")).includes('"kept":true'), true);
   assert.equal((await readdir(codexHomeDir)).some((name) => name.startsWith("hooks.json.backup-")), true);
 

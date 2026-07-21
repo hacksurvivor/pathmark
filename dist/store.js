@@ -13,9 +13,12 @@ const DEFAULT_NO_OWNER_STALE_LOCK_MS = 5000;
 const LOCK_OWNER_FILE = "owner.json";
 const WRITE_LOCK_DIR = ".memory.lock";
 const INDEX_LOCK_DIR = ".memory.index.lock";
-const INDEX_FILE = "memory.index.sqlite";
-const INDEX_SCHEMA_VERSION = "3";
+const INDEX_SCHEMA_VERSION = "4";
+const INDEX_FILE = `memory.index.v${INDEX_SCHEMA_VERSION}.sqlite`;
 const SEARCH_CANDIDATE_LIMIT = 2000;
+const ACTIVITY_TAG = "pathmark-activity";
+const ACTIVITY_PRUNE_INTERVAL_MS = 60 * 60 * 1_000;
+const ACTIVITY_PRUNED_AT_KEY = "activity_pruned_at_ms";
 export class PathmarkStore {
     config;
     db;
@@ -80,6 +83,7 @@ export class PathmarkStore {
                     updatedAt: input.updatedAt ?? input.createdAt ?? now,
                     ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
                     ...(input.supersedes ? { supersedes: input.supersedes } : {}),
+                    ...(input.activity ? { activity: input.activity } : {}),
                 };
                 if (findDuplicate) {
                     const hash = contentHash(record);
@@ -139,6 +143,54 @@ export class PathmarkStore {
             .all(new Date().toISOString(), ...parameters, limit);
         return rows.map(rowToRecord);
     }
+    async enforceActivityRetention(options) {
+        const retentionDays = Math.max(0, options.retentionDays);
+        const maxRecords = Math.max(0, Math.min(options.maxRecords, 100_000));
+        const db = await this.database();
+        const now = Date.now();
+        const lastPrunedAt = Number.parseInt(getMeta(db, ACTIVITY_PRUNED_AT_KEY) ?? "0", 10);
+        const countRow = db
+            .prepare("SELECT COUNT(*) AS count FROM records WHERE instr(tags_key, ?) > 0")
+            .get(`\u001f${ACTIVITY_TAG}\u001f`);
+        const count = Number(countRow.count);
+        const overLimit = maxRecords > 0 && count > maxRecords;
+        const due = !Number.isFinite(lastPrunedAt) || now - lastPrunedAt >= ACTIVITY_PRUNE_INTERVAL_MS;
+        if (!overLimit && !due)
+            return { applied: false, removedRecords: 0 };
+        return this.withWriteLock(async () => {
+            const raw = await readFile(this.config.memoryFile, "utf8");
+            const parsed = parseJsonl(raw);
+            const cutoff = retentionDays > 0 ? now - retentionDays * 24 * 60 * 60 * 1_000 : undefined;
+            const eligible = parsed.records
+                .filter((record) => record.tags.includes(ACTIVITY_TAG))
+                .filter((record) => !record.deletedAt)
+                .filter((record) => !record.expiresAt || Date.parse(record.expiresAt) > now)
+                .filter((record) => cutoff === undefined || Date.parse(record.createdAt) >= cutoff)
+                .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+            const retained = new Set((maxRecords > 0 ? eligible.slice(0, maxRecords) : eligible).map((record) => record.id));
+            const removedIds = new Set(parsed.records
+                .filter((record) => record.tags.includes(ACTIVITY_TAG) && !retained.has(record.id))
+                .map((record) => record.id));
+            if (removedIds.size === 0) {
+                setMeta(db, ACTIVITY_PRUNED_AT_KEY, String(now));
+                return { applied: false, removedRecords: 0 };
+            }
+            const lines = raw.split("\n").filter((line) => {
+                if (!line.trim())
+                    return false;
+                const record = parseRecordLine(line);
+                return !record || !removedIds.has(record.id);
+            });
+            const tmp = path.join(this.config.storeDir, `.memory.activity-retention.${randomUUID()}.tmp`);
+            await writeFile(tmp, lines.length > 0 ? `${lines.join("\n")}\n` : "", "utf8");
+            await rename(tmp, this.config.memoryFile);
+            const kept = parsed.records.filter((record) => !removedIds.has(record.id));
+            replaceIndexRecords(db, kept);
+            await updateIndexMetadata(db, this.config.memoryFile, parsed.invalidRecordCount);
+            setMeta(db, ACTIVITY_PRUNED_AT_KEY, String(now));
+            return { applied: true, removedRecords: removedIds.size };
+        });
+    }
     async health() {
         const db = await this.database();
         return {
@@ -162,10 +214,58 @@ export class PathmarkStore {
             return deleted;
         });
     }
+    async deleteMany(ids) {
+        const selectedIds = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+        if (selectedIds.length === 0)
+            return 0;
+        await this.ensureReady();
+        return this.withWriteLock(async () => {
+            const db = await this.database();
+            const find = db.prepare("SELECT * FROM records WHERE id = ? AND deleted_at IS NULL");
+            const now = new Date().toISOString();
+            const replacements = new Map();
+            for (const id of selectedIds) {
+                const row = find.get(id);
+                if (!row)
+                    continue;
+                const existing = rowToRecord(row);
+                replacements.set(id, { ...existing, deletedAt: now, updatedAt: now });
+            }
+            if (replacements.size === 0)
+                return 0;
+            await this.rewriteRecords(replacements);
+            indexRecords(db, [...replacements.values()]);
+            await updateIndexMetadata(db, this.config.memoryFile, currentInvalidRecordCount(db));
+            return replacements.size;
+        });
+    }
     async get(id, options = {}) {
         const db = await this.database();
         const row = db.prepare(`SELECT * FROM records WHERE id = ?${options.includeDeleted ? "" : " AND deleted_at IS NULL"}`).get(id);
         return row ? rowToRecord(row) : undefined;
+    }
+    async searchByIds(input) {
+        const ids = [...new Set(input.ids.map((id) => id.trim()).filter(Boolean))].slice(0, 50);
+        if (ids.length === 0)
+            return [];
+        const db = await this.database();
+        const now = new Date().toISOString();
+        const tagFilter = normalizeTags(input.tags ?? []);
+        const queryTerms = tokenizeSearchText(input.query);
+        const find = db.prepare("SELECT * FROM records WHERE id = ? AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)");
+        const results = [];
+        for (const id of ids) {
+            const row = find.get(id, now);
+            if (!row)
+                continue;
+            const record = rowToRecord(row);
+            if (input.kind && record.kind !== input.kind)
+                continue;
+            if (tagFilter.some((tag) => !record.tags.includes(tag)))
+                continue;
+            results.push(scoreRecord(record, queryTerms));
+        }
+        return results;
     }
     async update(id, patch) {
         await this.ensureReady();
@@ -202,6 +302,32 @@ export class PathmarkStore {
             return updated;
         });
     }
+    async updateActivities(updates) {
+        if (updates.size === 0)
+            return 0;
+        await this.ensureReady();
+        return this.withWriteLock(async () => {
+            const db = await this.database();
+            const find = db.prepare("SELECT * FROM records WHERE id = ? AND deleted_at IS NULL");
+            const replacements = new Map();
+            const now = new Date().toISOString();
+            for (const [id, activity] of updates) {
+                const row = find.get(id);
+                if (!row)
+                    continue;
+                const existing = rowToRecord(row);
+                if (!existing.activity)
+                    continue;
+                replacements.set(id, { ...existing, activity, updatedAt: now });
+            }
+            if (replacements.size === 0)
+                return 0;
+            await this.rewriteRecords(replacements);
+            indexRecords(db, [...replacements.values()]);
+            await updateIndexMetadata(db, this.config.memoryFile, currentInvalidRecordCount(db));
+            return replacements.size;
+        });
+    }
     async supersede(id, input) {
         await this.ensureReady();
         return this.withWriteLock(async () => {
@@ -221,6 +347,7 @@ export class PathmarkStore {
                 updatedAt: input.updatedAt ?? now,
                 supersedes: id,
                 ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+                ...(input.activity ? { activity: input.activity } : {}),
             };
             if (!replacement.text)
                 throw new Error("text is required");
@@ -731,6 +858,8 @@ function parseRecordLine(line) {
             return undefined;
         if (value.history !== undefined && !isRecordHistory(value.history))
             return undefined;
+        if (value.activity !== undefined && !isPathmarkActivity(value.activity))
+            return undefined;
         return {
             id: value.id,
             kind: value.kind,
@@ -745,6 +874,7 @@ function parseRecordLine(line) {
             ...(value.supersededBy ? { supersededBy: value.supersededBy } : {}),
             ...(typeof value.occurrences === "number" ? { occurrences: value.occurrences } : {}),
             ...(Array.isArray(value.history) ? { history: value.history } : {}),
+            ...(value.activity ? { activity: value.activity } : {}),
         };
     }
     catch {
@@ -782,6 +912,34 @@ function isRecordHistory(value) {
             typeof entry.source === "string" &&
             typeof entry.updatedAt === "string"));
 }
+function isPathmarkActivity(value) {
+    if (!isRecord(value))
+        return false;
+    if (value.type === "recall") {
+        return (typeof value.queryHash === "string" &&
+            Array.isArray(value.memoryIds) &&
+            value.memoryIds.every((id) => typeof id === "string") &&
+            Number.isInteger(value.memoryCount) &&
+            Number(value.memoryCount) >= 0);
+    }
+    if (value.type !== "tool" || typeof value.toolName !== "string")
+        return false;
+    if (value.status !== "success" && value.status !== "error" && value.status !== "unknown")
+        return false;
+    if (value.filesChanged !== true && value.filesChanged !== false && value.filesChanged !== "unknown")
+        return false;
+    if (value.changedFiles !== undefined && (!Array.isArray(value.changedFiles) || !value.changedFiles.every((file) => typeof file === "string")))
+        return false;
+    for (const key of ["callId", "commandPreview", "commandHash", "inputPreview", "inputHash", "outputPreview", "outputHash"]) {
+        if (value[key] !== undefined && typeof value[key] !== "string")
+            return false;
+    }
+    for (const key of ["exitCode", "durationMs"]) {
+        if (value[key] !== undefined && (typeof value[key] !== "number" || !Number.isFinite(value[key])))
+            return false;
+    }
+    return true;
+}
 function scoreRecord(record, queryTerms) {
     const haystackTerms = new Set(tokenizeSearchText(`${record.text}\n${record.tags.join(" ")}\n${record.source}`));
     const textTerms = new Set(tokenizeSearchText(record.text));
@@ -796,6 +954,17 @@ function scoreRecord(record, queryTerms) {
     };
 }
 function contentHash(record) {
+    if (record.activity) {
+        return createHash("sha256")
+            .update(record.kind)
+            .update("\0activity\0")
+            .update(JSON.stringify(record.activity))
+            .update("\0")
+            .update(record.source)
+            .update("\0")
+            .update(record.id)
+            .digest("hex");
+    }
     const scopeTags = record.tags.filter((tag) => !tag.startsWith("session:") &&
         tag !== "immediate-prompt" &&
         tag !== "codex-raw" &&

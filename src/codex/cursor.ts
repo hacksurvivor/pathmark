@@ -5,6 +5,7 @@ export interface CaptureCursor {
   count: number;
   updatedAt: string;
   transcriptFingerprint?: string;
+  parserVersion?: number;
 }
 
 export function cursorPath(storeDir: string, sessionId: string): string {
@@ -26,6 +27,10 @@ export async function readCursorState(storeDir: string, sessionId: string): Prom
         typeof parsed.transcriptFingerprint === "string" && parsed.transcriptFingerprint
           ? parsed.transcriptFingerprint
           : undefined,
+      parserVersion:
+        typeof parsed.parserVersion === "number" && Number.isInteger(parsed.parserVersion) && parsed.parserVersion > 0
+          ? parsed.parserVersion
+          : undefined,
     };
   } catch {
     return { count: 0, updatedAt: "" };
@@ -36,7 +41,7 @@ export async function writeCursor(
   storeDir: string,
   sessionId: string,
   count: number,
-  metadata: { transcriptFingerprint?: string } = {},
+  metadata: { transcriptFingerprint?: string; parserVersion?: number } = {},
 ): Promise<void> {
   const file = cursorPath(storeDir, sessionId);
   const safeCount = Number.isFinite(count) && count >= 0 ? count : 0;
@@ -48,6 +53,7 @@ export async function writeCursor(
         count: safeCount,
         updatedAt: new Date().toISOString(),
         ...(metadata.transcriptFingerprint ? { transcriptFingerprint: metadata.transcriptFingerprint } : {}),
+        ...(metadata.parserVersion ? { parserVersion: metadata.parserVersion } : {}),
       },
       null,
       2,

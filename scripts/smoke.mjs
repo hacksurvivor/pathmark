@@ -67,6 +67,7 @@ for (const required of [
   "remember",
   "search_memory",
   "recall_memory",
+  "session_trace",
   "get_context",
   "ask_memory",
   "chat",
@@ -146,6 +147,51 @@ if (!recallText.includes("Pathmark smoke test memory") || !recallText.includes("
 }
 if (recallText.includes("tag-scoped recall should hide")) {
   throw new Error("Recall memory ignored tag scoping");
+}
+
+await request("tools/call", {
+  name: "remember",
+  arguments: {
+    text: "MCP smoke current prompt that would otherwise dominate visible recall.",
+    tags: ["smoke", "mcp"],
+    source: "smoke-current",
+  },
+});
+const exactRecall = await request("tools/call", {
+  name: "recall_memory",
+  arguments: {
+    query: "MCP smoke current prompt",
+    ids: [savedRecord.id],
+    tags: ["smoke"],
+    includeRecords: false,
+  },
+});
+const exactRecallPayload = JSON.parse(exactRecall.content?.[0]?.text ?? "{}");
+if (exactRecallPayload.usedMemories?.length !== 1 || exactRecallPayload.usedMemories[0]?.id !== savedRecord.id) {
+  throw new Error("Exact-ID recall did not preserve the original visible memory set");
+}
+if ("records" in exactRecallPayload) {
+  throw new Error("Compact visible recall duplicated full records");
+}
+if (exactRecallPayload.context.includes("would otherwise dominate")) {
+  throw new Error("Exact-ID recall admitted a newly captured prompt");
+}
+
+await request("tools/call", {
+  name: "remember",
+  arguments: {
+    text: "Session trace smoke prompt.",
+    tags: ["session:smoke-session", "role-user"],
+    source: "codex:session:smoke-session",
+  },
+});
+const traceResult = await request("tools/call", {
+  name: "session_trace",
+  arguments: { sessionId: "smoke-session" },
+});
+const tracePayload = JSON.parse(traceResult.content?.[0]?.text ?? "{}");
+if (tracePayload.mode !== "session_trace" || tracePayload.entries?.[0]?.text !== "Session trace smoke prompt.") {
+  throw new Error("session_trace did not return the captured chronological entry");
 }
 
 const secretSave = await request("tools/call", {
