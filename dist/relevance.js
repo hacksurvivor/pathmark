@@ -20,6 +20,19 @@ const GENERIC_TERMS = new Set([
     "user",
     "workspace",
 ]);
+const LOW_INFORMATION_TERMS = new Set([
+    "fine",
+    "fix",
+    "good",
+    "need",
+    "okay",
+    "please",
+    "pls",
+    "ready",
+    "sure",
+    "totally",
+    "well",
+]);
 const ENGLISH_STOP_WORDS = new Set("a about after all also an and are as at be because before both but by can could did do does each for from had has have how i if in into is it its may more most my no not of on one only or our out over same should so some than that the their them then there these they this those through to up use was we were what when where which while who will with without would you your".split(" "));
 const RUSSIAN_STOP_WORDS = new Set("а без более был была были было быть бы в вам вас ведь весь во вот все всего всех вы где да даже для до его ее если есть еще же за зачем здесь и из или им их к как когда конечно кто ли между меня мне много может мой мы на надо над нас не него нее нет ни них но ну о об один он она они от перед по под после потому почти при про раз разве сам себя со с так такой там тебя тем то того тоже только том тот тут ты у уже хоть чем через что чтобы этот этого этой эти это я".split(" "));
 const METADATA_TERM = /^(?:[0-9a-f]{4,}|\d{4,})$/i;
@@ -31,7 +44,7 @@ export function selectRelevantResults(results, query, limit) {
     const queryTerms = informativeTerms(query);
     const signalResults = filterLowSignalResults(results);
     if (queryTerms.size === 0)
-        return suppressNearDuplicates(signalResults, limit);
+        return [];
     const queryWeight = [...queryTerms].reduce((total, term) => total + termWeight(term), 0);
     const requiredMatches = Math.min(3, Math.max(1, Math.ceil(queryTerms.size * 0.34)));
     const ranked = signalResults
@@ -82,7 +95,7 @@ export function filterLowSignalResults(results) {
 }
 function isLowSignalCapture(result) {
     const text = result.record.text.trimStart();
-    if (/^(?:#\s*(?:files mentioned by the user|response annotations|diff comments):|<(?:recommended_plugins|subagent_notification|codex_internal_context|pathmark-memory|environment_context)\b)/i.test(text)) {
+    if (/^(?:#\s*(?:files mentioned by the user|response annotations|diff comments):|#\s*overview\s+generate\s+0\s+to\s+3\s+hyperpersonalized\s+suggestions\b|<(?:recommended_plugins|subagent_notification|codex_internal_context|pathmark-memory|environment_context|skill)\b)/i.test(text)) {
         return true;
     }
     if (!result.record.tags.includes("role-assistant"))
@@ -91,19 +104,6 @@ function isLowSignalCapture(result) {
 }
 function termWeight(term) {
     return Math.min([...term].length, 12);
-}
-function suppressNearDuplicates(results, limit) {
-    const selected = [];
-    for (const result of results) {
-        const terms = informativeTerms(result.record.text);
-        if (selected.some((existing) => nearDuplicate(existing.terms, terms, existing.result.record.text, result.record.text))) {
-            continue;
-        }
-        selected.push({ result, terms });
-        if (selected.length >= limit)
-            break;
-    }
-    return selected.map(({ result }) => result);
 }
 function nearDuplicate(left, right, leftText, rightText) {
     if (left.size === 0 || right.size === 0)
@@ -128,6 +128,7 @@ function nearDuplicate(left, right, leftText, rightText) {
 }
 function informativeTerms(text) {
     return new Set(tokenizeSearchText(text).filter((term) => !GENERIC_TERMS.has(term) &&
+        !LOW_INFORMATION_TERMS.has(term) &&
         !ENGLISH_STOP_WORDS.has(term) &&
         !RUSSIAN_STOP_WORDS.has(term) &&
         !METADATA_TERM.test(term)));

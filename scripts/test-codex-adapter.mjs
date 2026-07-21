@@ -696,6 +696,25 @@ try {
   assert.equal(failedTool.activity.inputPreview, '{"target":"staging"}');
   assert.equal(failedTool.activity.outputPreview, "deployment failed");
 
+  const nestedInputTrue = captureToolActivity({
+    tool_name: "custom.scan",
+    tool_input: { path: "/workspace", options: { recursive: true, filters: ["ts", { hidden: false }] } },
+  });
+  const nestedInputFalse = captureToolActivity({
+    tool_name: "custom.scan",
+    tool_input: { path: "/workspace", options: { recursive: false, filters: ["ts", { hidden: false }] } },
+  });
+  const nestedInputReordered = captureToolActivity({
+    tool_name: "custom.scan",
+    tool_input: { options: { filters: ["ts", { hidden: false }], recursive: true }, path: "/workspace" },
+  });
+  assert.equal(
+    nestedInputTrue.activity.inputPreview,
+    '{"options":{"filters":["ts",{"hidden":false}],"recursive":true},"path":"/workspace"}',
+  );
+  assert.notEqual(nestedInputTrue.activity.inputHash, nestedInputFalse.activity.inputHash);
+  assert.equal(nestedInputTrue.activity.inputHash, nestedInputReordered.activity.inputHash);
+
   const patchActivity = captureToolActivity({
     tool_name: "functions.apply_patch",
     tool_input: "*** Begin Patch\n*** Update File: src/example.ts\n@@\n-old\n+new\n*** End Patch\n",
@@ -905,6 +924,19 @@ try {
   assert.equal(relevanceContext.includes("SovaMax email needs company ID format for ERP transfer"), true);
   assert.equal(relevanceContext.includes("IT automation"), false);
   assert.equal(relevanceContext.includes("Meetily"), false);
+
+  createStore("low-information-recall");
+  await prompt({
+    cwd: "/workspace/pathmark",
+    session_id: "low-information-source",
+    prompt: "We need a totally new name and should collect good naming ideas.",
+  });
+  const lowInformationContext = await prompt({
+    cwd: "/workspace/pathmark",
+    session_id: "low-information-target",
+    prompt: "So, are we totally good?",
+  });
+  assert.equal(lowInformationContext, "");
 
   const previousVisibleRecall = process.env.PATHMARK_CODEX_VISIBLE_RECALL;
   try {

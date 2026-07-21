@@ -23,6 +23,20 @@ const GENERIC_TERMS = new Set([
   "workspace",
 ]);
 
+const LOW_INFORMATION_TERMS = new Set([
+  "fine",
+  "fix",
+  "good",
+  "need",
+  "okay",
+  "please",
+  "pls",
+  "ready",
+  "sure",
+  "totally",
+  "well",
+]);
+
 const ENGLISH_STOP_WORDS = new Set(
   "a about after all also an and are as at be because before both but by can could did do does each for from had has have how i if in into is it its may more most my no not of on one only or our out over same should so some than that the their them then there these they this those through to up use was we were what when where which while who will with without would you your".split(" "),
 );
@@ -48,7 +62,7 @@ export function selectRelevantResults(results: SearchResult[], query: string, li
   if (results.length === 0 || limit <= 0) return [];
   const queryTerms = informativeTerms(query);
   const signalResults = filterLowSignalResults(results);
-  if (queryTerms.size === 0) return suppressNearDuplicates(signalResults, limit);
+  if (queryTerms.size === 0) return [];
   const queryWeight = [...queryTerms].reduce((total, term) => total + termWeight(term), 0);
   const requiredMatches = Math.min(3, Math.max(1, Math.ceil(queryTerms.size * 0.34)));
 
@@ -113,7 +127,7 @@ export function filterLowSignalResults(results: SearchResult[]): SearchResult[] 
 function isLowSignalCapture(result: SearchResult): boolean {
   const text = result.record.text.trimStart();
   if (
-    /^(?:#\s*(?:files mentioned by the user|response annotations|diff comments):|<(?:recommended_plugins|subagent_notification|codex_internal_context|pathmark-memory|environment_context)\b)/i.test(
+    /^(?:#\s*(?:files mentioned by the user|response annotations|diff comments):|#\s*overview\s+generate\s+0\s+to\s+3\s+hyperpersonalized\s+suggestions\b|<(?:recommended_plugins|subagent_notification|codex_internal_context|pathmark-memory|environment_context|skill)\b)/i.test(
       text,
     )
   ) {
@@ -127,19 +141,6 @@ function isLowSignalCapture(result: SearchResult): boolean {
 
 function termWeight(term: string): number {
   return Math.min([...term].length, 12);
-}
-
-function suppressNearDuplicates(results: SearchResult[], limit: number): SearchResult[] {
-  const selected: Array<{ result: SearchResult; terms: Set<string> }> = [];
-  for (const result of results) {
-    const terms = informativeTerms(result.record.text);
-    if (selected.some((existing) => nearDuplicate(existing.terms, terms, existing.result.record.text, result.record.text))) {
-      continue;
-    }
-    selected.push({ result, terms });
-    if (selected.length >= limit) break;
-  }
-  return selected.map(({ result }) => result);
 }
 
 function nearDuplicate(left: Set<string>, right: Set<string>, leftText: string, rightText: string): boolean {
@@ -166,6 +167,7 @@ function informativeTerms(text: string): Set<string> {
     tokenizeSearchText(text).filter(
       (term) =>
         !GENERIC_TERMS.has(term) &&
+        !LOW_INFORMATION_TERMS.has(term) &&
         !ENGLISH_STOP_WORDS.has(term) &&
         !RUSSIAN_STOP_WORDS.has(term) &&
         !METADATA_TERM.test(term),

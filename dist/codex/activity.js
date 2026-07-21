@@ -131,7 +131,13 @@ function stableStringify(value) {
     if (typeof value === "string")
         return value;
     try {
-        return JSON.stringify(value, Object.keys(isRecord(value) ? value : {}).sort());
+        return JSON.stringify(value, (_key, nestedValue) => {
+            if (!isRecord(nestedValue))
+                return nestedValue;
+            return Object.fromEntries(Object.keys(nestedValue)
+                .sort()
+                .map((key) => [key, nestedValue[key]]));
+        }) ?? String(value);
     }
     catch {
         return String(value);

@@ -39,6 +39,18 @@ const records = [
   ["meetily-design-noise", "Apply the recommended design to the report template."],
   ["campaign", "The September target is 10,000 processed call results through Twilio, including no-answer and busy outcomes."],
   ["campaign-noise", "Twilio recording has a separate per-minute storage price."],
+  ["activity-audit", "Nested activity inputs require recursive canonical hashing so different tool arguments remain auditable."],
+  [
+    "activity-skill-noise",
+    "<skill>Nested activity inputs require recursive canonical hashing for the audit trail.</skill>",
+    ["role-user"],
+  ],
+  [
+    "activity-suggestion-noise",
+    "# Overview\n\nGenerate 0 to 3 hyperpersonalized suggestions for nested activity inputs and canonical hashing.",
+    ["role-user"],
+  ],
+  ["vague-naming-noise", "We need a totally new name and should collect good naming ideas."],
 ];
 
 await store.addRecords(
@@ -66,6 +78,11 @@ const cases = [
     rejected: ["meetily-transcription-noise", "meetily-design-noise"],
   },
   { query: "10,000 calls September Twilio", expected: "campaign", rejected: ["campaign-noise"] },
+  {
+    query: "nested activity inputs canonical hashing",
+    expected: "activity-audit",
+    rejected: ["activity-skill-noise", "activity-suggestion-noise"],
+  },
 ];
 
 for (const testCase of cases) {
@@ -80,5 +97,9 @@ for (const testCase of cases) {
     );
   }
 }
+
+const vagueRaw = await store.search({ query: "So, are we totally good?", tags: ["acceptance"], limit: 50 });
+assert.equal(vagueRaw.some((result) => result.record.id === "vague-naming-noise"), true);
+assert.deepEqual(selectRelevantResults(vagueRaw, "So, are we totally good?", 5), []);
 
 console.log("Retrieval acceptance tests passed");
