@@ -48,7 +48,10 @@
     "glm",
     "mcp-server"
   ],
-  "author": "",
+  "author": {
+    "name": "Sergey Moloman",
+    "url": "https://rflxai.com/founder/sergey-moloman"
+  },
   "license": "MIT",
   "homepage": "https://github.com/hacksurvivor/pathmark#readme",
   "repository": {
