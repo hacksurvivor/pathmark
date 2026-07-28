@@ -13,7 +13,7 @@ export async function runMcpServer() {
     const store = new PathmarkStore(config);
     const server = new McpServer({
         name: "pathmark",
-        version: "0.1.8",
+        version: "0.1.9",
     });
     server.registerTool("get_config", {
         title: "Get Pathmark configuration",
