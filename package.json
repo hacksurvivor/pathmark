@@ -1,6 +1,7 @@
 {
   "name": "pathmark",
-  "version": "0.1.9",
+  "version": "0.1.10",
+  "mcpName": "io.github.hacksurvivor/pathmark",
   "description": "One local memory layer for Codex, Claude Code, opencode, Cursor, Gemini CLI, and MCP-capable coding agents.",
   "type": "module",
   "bin": {
@@ -11,6 +12,7 @@
     "README.md",
     "CITATION.cff",
     "codemeta.json",
+    "server.json",
     "SECURITY.md",
     "LICENSE",
     "examples",
