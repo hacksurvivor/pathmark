@@ -9,6 +9,8 @@
   "files": [
     "dist",
     "README.md",
+    "CITATION.cff",
+    "codemeta.json",
     "SECURITY.md",
     "LICENSE",
     "examples",
@@ -48,7 +50,10 @@
     "glm",
     "mcp-server"
   ],
-  "author": "",
+  "author": {
+    "name": "Sergey Moloman",
+    "url": "https://rflxai.com/founder/sergey-moloman"
+  },
   "license": "MIT",
   "homepage": "https://github.com/hacksurvivor/pathmark#readme",
   "repository": {
