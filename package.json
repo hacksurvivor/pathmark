@@ -9,6 +9,8 @@
   "files": [
     "dist",
     "README.md",
+    "CITATION.cff",
+    "codemeta.json",
     "SECURITY.md",
     "LICENSE",
     "examples",

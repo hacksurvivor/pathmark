@@ -17,6 +17,16 @@ assert.equal(
   "MCP server version must match package.json",
 );
 
+const citation = await readFile("CITATION.cff", "utf8");
+assert.equal(
+  citation.includes(`version: ${JSON.stringify(packageJson.version)}`),
+  true,
+  "CITATION.cff version must match package.json",
+);
+
+const codeMeta = JSON.parse(await readFile("codemeta.json", "utf8"));
+assert.equal(codeMeta.version, packageJson.version, "codemeta.json version must match package.json");
+
 const releaseNotes = path.join("docs", "releases", `${expectedTag}.md`);
 const notes = await readFile(releaseNotes, "utf8");
 assert.equal(notes.includes(`# Pathmark ${expectedTag}`), true, `Release notes must start with # Pathmark ${expectedTag}`);
