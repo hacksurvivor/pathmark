@@ -21,11 +21,13 @@ export interface CompactOptions {
     retentionDays?: number;
     dryRun?: boolean;
 }
+export declare function closeOpenStores(): Promise<void>;
 export declare class PathmarkStore {
     private readonly config;
     private db?;
     private syncPromise?;
     constructor(config: PathmarkConfig);
+    close(): Promise<void>;
     ensureReady(): Promise<void>;
     add(input: PathmarkRecordDraft, options?: AddRecordsOptions): Promise<PathmarkRecord>;
     addRecord(input: PathmarkRecordDraft, options?: AddRecordsOptions): Promise<{

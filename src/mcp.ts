@@ -152,7 +152,12 @@ export async function runMcpServer(): Promise<void> {
         tags: z.array(z.string()).optional().describe("Optional tags to scope visible recall, such as the current workspace tag."),
         namespace: z.string().min(1).optional(),
         kind: z.enum(["memory", "conclusion"]).optional(),
-        includeRecords: z.boolean().optional().describe("Include a second full-record copy. Defaults to true for compatibility."),
+        includeRecords: z
+          .boolean()
+          .optional()
+          .describe(
+            "Include a second, untruncated full-record copy alongside usedMemories. Defaults to false: it duplicates data already in context/usedMemories and is unbounded in size. Set true only when full record bodies are required.",
+          ),
       },
     },
     async ({ query, limit, ids, tags, namespace, kind, includeRecords }) => {
@@ -165,7 +170,7 @@ export async function runMcpServer(): Promise<void> {
         mode: "transparent_recall",
         context: summarizeSearch(results),
         usedMemories: usedMemories(results),
-        ...(includeRecords === false ? {} : { records: results.map((result) => result.record) }),
+        ...(includeRecords === true ? { records: results.map((result) => result.record) } : {}),
       });
     },
   );

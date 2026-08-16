@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { appendFile, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "./memory-safety.js";
 import { tokenizeSearchText } from "./tokenize.js";
 import { rerankWithCommand } from "./retrieval.js";
 import { encryptPortableExport } from "./portable.js";
@@ -88,11 +89,43 @@ export interface CompactOptions {
   dryRun?: boolean;
 }
 
+// Short-lived hook processes (`pathmark codex observe`, etc.) each open an index
+// connection. Nothing closed them, so they lingered holding a read snapshot and
+// SQLite could never checkpoint the WAL. Tracking open stores lets the CLI drain
+// and close them before exiting.
+const openStores = new Set<PathmarkStore>();
+
+export async function closeOpenStores(): Promise<void> {
+  await Promise.all([...openStores].map((store) => store.close()));
+}
+
 export class PathmarkStore {
   private db?: DatabaseSync;
   private syncPromise?: Promise<void>;
 
-  constructor(private readonly config: PathmarkConfig) {}
+  constructor(private readonly config: PathmarkConfig) {
+    openStores.add(this);
+  }
+
+  // Checkpoint on the way out so the WAL is folded back into the db file rather
+  // than growing across process generations. Best effort: a busy checkpoint must
+  // never fail the command that happens to be closing the store.
+  async close(): Promise<void> {
+    openStores.delete(this);
+    const db = this.db;
+    if (!db) return;
+    this.db = undefined;
+    try {
+      db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+    } catch {
+      // another connection holds a snapshot; the next close will get it
+    }
+    try {
+      db.close();
+    } catch {
+      // already closed
+    }
+  }
 
   async ensureReady(): Promise<void> {
     await mkdir(this.config.storeDir, { recursive: true });
@@ -154,7 +187,10 @@ export class PathmarkStore {
           id,
           kind: input.kind,
           text: normalizedText,
-          tags: normalizeTags(input.tags ?? []),
+          tags: normalizeTags([
+            ...(input.tags ?? []),
+            ...(isUnsafeMemoryText(normalizedText) ? [QUARANTINED_MEMORY_TAG] : []),
+          ]),
           source: input.source?.trim() || "mcp",
           createdAt: input.createdAt ?? now,
           updatedAt: input.updatedAt ?? input.createdAt ?? now,
@@ -270,8 +306,7 @@ export class PathmarkStore {
         return !record || !removedIds.has(record.id);
       });
       const tmp = path.join(this.config.storeDir, `.memory.activity-retention.${randomUUID()}.tmp`);
-      await writeFile(tmp, lines.length > 0 ? `${lines.join("\n")}\n` : "", "utf8");
-      await rename(tmp, this.config.memoryFile);
+      await writeAtomic(tmp, this.config.memoryFile, lines.length > 0 ? `${lines.join("\n")}\n` : "");
       const kept = parsed.records.filter((record) => !removedIds.has(record.id));
       replaceIndexRecords(db, kept);
       await updateIndexMetadata(db, this.config.memoryFile, parsed.invalidRecordCount);
@@ -599,7 +634,10 @@ export class PathmarkStore {
     await this.ensureReady();
     if (!this.syncPromise) {
       this.syncPromise = withDirectoryLock(this.config.storeDir, INDEX_LOCK_DIR, async () => {
-        if (!this.db) this.db = await openIndexDatabase(this.indexFile);
+        if (!this.db) {
+          this.db = await openIndexDatabase(this.indexFile);
+          await sweepStaleTempFiles(this.config.storeDir);
+        }
         await synchronizeIndex(this.db, this.config.memoryFile);
       }).finally(() => {
         this.syncPromise = undefined;
@@ -632,15 +670,13 @@ export class PathmarkStore {
       this.config.storeDir,
       `.memory.${createHash("sha256").update(String(Date.now())).digest("hex").slice(0, 8)}.tmp`,
     );
-    await writeFile(tmp, lines.join("\n"), "utf8");
-    await rename(tmp, this.config.memoryFile);
+    await writeAtomic(tmp, this.config.memoryFile, lines.join("\n"));
   }
 
   private async replaceCanonical(records: PathmarkRecord[]): Promise<void> {
     const tmp = path.join(this.config.storeDir, `.memory.${randomUUID()}.tmp`);
     const body = records.length > 0 ? `${records.map((record) => JSON.stringify(record)).join("\n")}\n` : "";
-    await writeFile(tmp, body, "utf8");
-    await rename(tmp, this.config.memoryFile);
+    await writeAtomic(tmp, this.config.memoryFile, body);
   }
 
   private async createBackup(destination?: string): Promise<string> {
@@ -658,6 +694,39 @@ export class PathmarkStore {
   private async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
     return withDirectoryLock(this.config.storeDir, WRITE_LOCK_DIR, operation);
   }
+}
+
+// Write-then-rename, cleaning up the temp file if either step throws. Without
+// this a failed rewrite leaks a full-size copy of memory.jsonl into the store
+// dir forever (observed: 35 orphans / 1.2 GB).
+async function writeAtomic(tmp: string, target: string, body: string): Promise<void> {
+  try {
+    await writeFile(tmp, body, "utf8");
+    await rename(tmp, target);
+  } catch (error) {
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+// writeAtomic cannot clean up after SIGKILL/OOM, so sweep stale temps on open.
+// Only touches files older than STALE_TMP_MS to avoid racing a concurrent write
+// from another process sharing this store dir.
+const STALE_TMP_MS = 60 * 60 * 1000;
+
+async function sweepStaleTempFiles(storeDir: string): Promise<void> {
+  const entries = await readdir(storeDir).catch(() => [] as string[]);
+  const cutoff = Date.now() - STALE_TMP_MS;
+  await Promise.all(
+    entries
+      .filter((entry) => entry.startsWith(".memory.") && entry.endsWith(".tmp"))
+      .map(async (entry) => {
+        const file = path.join(storeDir, entry);
+        const info = await stat(file).catch(() => undefined);
+        if (!info || info.mtimeMs >= cutoff) return;
+        await rm(file, { force: true }).catch(() => undefined);
+      }),
+  );
 }
 
 async function openIndexDatabase(indexFile: string): Promise<DatabaseSync> {
@@ -685,7 +754,14 @@ async function openIndexDatabase(indexFile: string): Promise<DatabaseSync> {
 }
 
 function initializeSchema(db: DatabaseSync): void {
-  db.exec("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+  // wal_autocheckpoint alone is best-effort: it is skipped whenever another
+  // connection holds an older snapshot, and long-lived `codex observe` processes
+  // hold one continuously. Without a size ceiling the WAL grows without bound
+  // (observed: 800 MB against a 579 MB db). journal_size_limit caps the file's
+  // reclaimed size so a checkpoint that does land also shrinks it on disk.
+  db.exec(
+    "PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA wal_autocheckpoint = 1000; PRAGMA journal_size_limit = 67108864;",
+  );
   db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
   const version = getMeta(db, "schema_version");
   if (version && version !== INDEX_SCHEMA_VERSION) {
