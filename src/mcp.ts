@@ -8,6 +8,8 @@ import { redactSecrets } from "./redact.js";
 import { selectRelevantResults } from "./relevance.js";
 import { namespaceTag, PathmarkStore } from "./store.js";
 import { sessionTrace } from "./session-trace.js";
+import { buildMemorySnapshot } from "./snapshot.js";
+import { conclusionApprovalStatus } from "./approval.js";
 
 export async function runMcpServer(): Promise<void> {
   const config = loadConfig();
@@ -60,7 +62,7 @@ export async function runMcpServer(): Promise<void> {
     "create_conclusion",
     {
       title: "Create conclusion",
-      description: "Save a durable conclusion or preference that should be treated as higher-signal than raw memory.",
+      description: "Propose a durable higher-signal conclusion. Approval is required by default before it can be recalled.",
       inputSchema: {
         text: z.string().min(1).describe("Conclusion text to save."),
         tags: z.array(z.string()).optional(),
@@ -70,17 +72,31 @@ export async function runMcpServer(): Promise<void> {
       },
     },
     async ({ text, tags, source, namespace, expiresAt }) => {
+      const input = {
+        text: safeWriteText(text, config.redactMcpWrites),
+        tags: scopedTags(tags, namespace ?? config.defaultNamespace),
+        source,
+        expiresAt,
+      };
+      if (config.conclusionApprovalRequired) {
+        const { record, created } = await store.proposeConclusion(input, { dedupe: true });
+        const approval = conclusionApprovalStatus(record);
+        return jsonText({
+          status: approval === "pending" ? "pending_approval" : "already_approved",
+          created,
+          proposal: record,
+        });
+      }
+      const decidedAt = new Date().toISOString();
       const record = await store.add(
         {
+          ...input,
           kind: "conclusion",
-          text: safeWriteText(text, config.redactMcpWrites),
-          tags: scopedTags(tags, namespace ?? config.defaultNamespace),
-          source,
-          expiresAt,
+          approval: { status: "approved", proposedAt: decidedAt, decidedAt, decidedBy: "approval-disabled" },
         },
         { dedupe: true },
       );
-      return jsonText(record);
+      return jsonText({ status: "approved", record });
     },
   );
 
@@ -203,16 +219,109 @@ export async function runMcpServer(): Promise<void> {
     },
     async ({ limit, tags, namespace }) => {
       const scope = scopedTags(tags, namespace ?? config.defaultNamespace);
-      const records = (
-        scope.length > 0
-          ? await store.recordsWithTags(scope, { kind: "conclusion", limit: limit ?? 50 })
-          : await store.all({ kind: "conclusion" })
-      ).slice(0, limit ?? 50);
+      const records = await store.listConclusions({ status: "approved", tags: scope, limit: limit ?? 50 });
       return jsonText({
         records,
         summary: summarizeRecords(records),
       });
     },
+  );
+
+  server.registerTool(
+    "list_pending_conclusions",
+    {
+      title: "List pending conclusions",
+      description: "List bounded approval-gated conclusion proposals. Pending records are never returned by normal memory search.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional(),
+        offset: z.number().int().min(0).max(1_000_000).optional(),
+        tags: z.array(z.string()).optional(),
+        namespace: z.string().min(1).optional(),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ limit, offset, tags, namespace }) => {
+      const selectedLimit = limit ?? 50;
+      const records = await store.listConclusions({
+        status: "pending",
+        tags: scopedTags(tags, namespace ?? config.defaultNamespace),
+        limit: selectedLimit + 1,
+        offset,
+      });
+      return jsonText({
+        records: records.slice(0, selectedLimit),
+        pagination: { offset: offset ?? 0, limit: selectedLimit, hasMore: records.length > selectedLimit },
+      });
+    },
+  );
+
+  server.registerTool(
+    "approve_conclusion",
+    {
+      title: "Approve conclusion",
+      description: "Approve one pending conclusion, optionally correcting its text or tags. The transition is atomic and auditable.",
+      inputSchema: {
+        id: z.string().min(1),
+        text: z.string().min(1).optional(),
+        tags: z.array(z.string()).optional(),
+        namespace: z.string().min(1).optional(),
+        decidedBy: z.string().min(1).max(200).optional(),
+        note: z.string().max(1_000).optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ id, text, tags, namespace, decidedBy, note }) => {
+      const existing = await store.get(id);
+      const selectedNamespace = namespace ?? config.defaultNamespace;
+      const approvalTags =
+        tags === undefined && namespace === undefined
+          ? undefined
+          : scopedTags(tags ?? existing?.tags, selectedNamespace);
+      const approved = await store.decideConclusion(id, "approved", {
+        ...(text === undefined ? {} : { text: safeWriteText(text, config.redactMcpWrites) }),
+        ...(approvalTags === undefined ? {} : { tags: approvalTags }),
+        decidedBy,
+        note,
+      });
+      return jsonText({ approved: approved ?? null });
+    },
+  );
+
+  server.registerTool(
+    "reject_conclusion",
+    {
+      title: "Reject conclusion",
+      description: "Reject one pending conclusion while retaining it in the canonical audit trail and excluding it from recall.",
+      inputSchema: {
+        id: z.string().min(1),
+        decidedBy: z.string().min(1).max(200).optional(),
+        note: z.string().max(1_000).optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ id, decidedBy, note }) =>
+      jsonText({ rejected: (await store.decideConclusion(id, "rejected", { decidedBy, note })) ?? null }),
+  );
+
+  server.registerTool(
+    "get_memory_snapshot",
+    {
+      title: "Get approved memory snapshot",
+      description: "Generate a bounded USER/PROJECT/AGENT snapshot from approved canonical conclusions only.",
+      inputSchema: {
+        tags: z.array(z.string()).optional(),
+        namespace: z.string().min(1).optional(),
+        charLimit: z.number().int().min(500).max(12_000).optional(),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ tags, namespace, charLimit }) =>
+      jsonText(
+        await buildMemorySnapshot(store, {
+          scopeTags: scopedTags(tags, namespace ?? config.defaultNamespace),
+          charLimit: charLimit ?? config.snapshotCharLimit,
+        }),
+      ),
   );
 
   server.registerTool(
@@ -283,14 +392,28 @@ export async function runMcpServer(): Promise<void> {
         tags === undefined && selectedNamespace === undefined
           ? undefined
           : scopedTags(tags ?? existing?.tags, selectedNamespace);
-      const replacement = await store.supersede(id, {
+      const replacementInput = {
         kind,
         text: safeWriteText(text, config.redactMcpWrites),
         tags: replacementTags,
         source,
         expiresAt,
-      });
-      return jsonText({ replacement: replacement ?? null });
+      };
+      if (kind === "conclusion" && config.conclusionApprovalRequired) {
+        const existingRecord = await store.get(id);
+        if (!existingRecord) return jsonText({ status: "not_found", proposal: null });
+        const { record, created } = await store.proposeConclusion(
+          { ...replacementInput, tags: replacementTags ?? existingRecord.tags, supersedes: id },
+          { dedupe: true },
+        );
+        return jsonText({
+          status: conclusionApprovalStatus(record) === "pending" ? "pending_approval" : "already_approved",
+          created,
+          proposal: record,
+        });
+      }
+      const replacement = await store.supersede(id, replacementInput);
+      return jsonText({ status: replacement ? "superseded" : "not_found", replacement: replacement ?? null });
     },
   );
 

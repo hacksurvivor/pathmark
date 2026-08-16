@@ -4,11 +4,20 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "./memory-safety.js";
+import {
+  APPROVAL_PENDING_TAG,
+  APPROVAL_REJECTED_TAG,
+  APPROVAL_STATE_TAGS,
+  conclusionApprovalStatus,
+  isRecallableRecord,
+  withApprovalTag,
+} from "./approval.js";
 import { tokenizeSearchText } from "./tokenize.js";
 import { rerankWithCommand } from "./retrieval.js";
 import { encryptPortableExport } from "./portable.js";
 import type {
   PathmarkConfig,
+  PathmarkApprovalStatus,
   ActivityRetentionResult,
   PathmarkActivity,
   PathmarkRecord,
@@ -163,7 +172,10 @@ export class PathmarkStore {
 
       const findRecord = db.prepare("SELECT * FROM records WHERE id = ?");
       const findDuplicate = options.dedupe
-        ? db.prepare("SELECT * FROM records WHERE content_hash = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1")
+        ? db.prepare(
+            "SELECT * FROM records WHERE content_hash = ? AND deleted_at IS NULL AND instr(tags_key, ?) = 0 " +
+            "ORDER BY CASE WHEN instr(tags_key, ?) > 0 THEN 1 ELSE 0 END ASC, updated_at DESC LIMIT 1",
+          )
         : undefined;
       const results: { record: PathmarkRecord; created: boolean }[] = [];
       const createdRecords: PathmarkRecord[] = [];
@@ -183,20 +195,23 @@ export class PathmarkStore {
           continue;
         }
 
+        const approval = input.kind === "conclusion" ? input.approval : undefined;
+        const baseTags = normalizeTags([
+          ...(input.tags ?? []),
+          ...(isUnsafeMemoryText(normalizedText) ? [QUARANTINED_MEMORY_TAG] : []),
+        ]);
         const record: PathmarkRecord = {
           id,
           kind: input.kind,
           text: normalizedText,
-          tags: normalizeTags([
-            ...(input.tags ?? []),
-            ...(isUnsafeMemoryText(normalizedText) ? [QUARANTINED_MEMORY_TAG] : []),
-          ]),
+          tags: approval ? normalizeTags(withApprovalTag(baseTags, approval.status)) : baseTags,
           source: input.source?.trim() || "mcp",
           createdAt: input.createdAt ?? now,
           updatedAt: input.updatedAt ?? input.createdAt ?? now,
           ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
           ...(input.supersedes ? { supersedes: input.supersedes } : {}),
           ...(input.activity ? { activity: input.activity } : {}),
+          ...(approval ? { approval } : {}),
         };
         if (findDuplicate) {
           const hash = contentHash(record);
@@ -205,7 +220,11 @@ export class PathmarkStore {
             results.push({ record: pendingDuplicate, created: false });
             continue;
           }
-          const duplicate = findDuplicate.get(hash) as IndexedRow | undefined;
+          const duplicate = findDuplicate.get(
+            hash,
+            `\u001f${APPROVAL_REJECTED_TAG}\u001f`,
+            `\u001f${APPROVAL_PENDING_TAG}\u001f`,
+          ) as IndexedRow | undefined;
           if (duplicate) {
             results.push({ record: rowToRecord(duplicate), created: false });
             continue;
@@ -242,6 +261,116 @@ export class PathmarkStore {
     const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "";
     const rows = db.prepare(`SELECT * FROM records${where} ORDER BY created_at DESC`).all(...parameters) as unknown as IndexedRow[];
     return rows.map(rowToRecord);
+  }
+
+  async listConclusions(input: {
+    status?: PathmarkApprovalStatus;
+    tags?: string[];
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<PathmarkRecord[]> {
+    const db = await this.database();
+    const status = input.status ?? "approved";
+    const tagFilter = normalizeTags(input.tags ?? []);
+    const clauses = ["kind = 'conclusion'", "deleted_at IS NULL", "(expires_at IS NULL OR expires_at > ?)"];
+    const parameters: Array<string | number> = [new Date().toISOString()];
+    if (status === "pending") {
+      clauses.push("instr(tags_key, ?) > 0");
+      parameters.push(`\u001f${APPROVAL_PENDING_TAG}\u001f`);
+    } else if (status === "rejected") {
+      clauses.push("instr(tags_key, ?) > 0");
+      parameters.push(`\u001f${APPROVAL_REJECTED_TAG}\u001f`);
+    } else {
+      clauses.push("instr(tags_key, ?) = 0", "instr(tags_key, ?) = 0");
+      parameters.push(`\u001f${APPROVAL_PENDING_TAG}\u001f`, `\u001f${APPROVAL_REJECTED_TAG}\u001f`);
+    }
+    for (const tag of tagFilter) {
+      clauses.push("instr(tags_key, ?) > 0");
+      parameters.push(`\u001f${tag}\u001f`);
+    }
+    const limit = Math.max(1, Math.min(input.limit ?? 50, 501));
+    const offset = Math.max(0, Math.min(input.offset ?? 0, 1_000_000));
+    const rows = db
+      .prepare(`SELECT * FROM records WHERE ${clauses.join(" AND ")} ORDER BY updated_at DESC LIMIT ? OFFSET ?`)
+      .all(...parameters, limit, offset) as unknown as IndexedRow[];
+    return rows.map(rowToRecord);
+  }
+
+  async proposeConclusion(
+    input: Omit<PathmarkRecordDraft, "kind" | "approval">,
+    options: AddRecordsOptions = {},
+  ): Promise<{ record: PathmarkRecord; created: boolean }> {
+    const proposedAt = input.createdAt ?? new Date().toISOString();
+    return this.addRecord(
+      {
+        ...input,
+        kind: "conclusion",
+        createdAt: proposedAt,
+        approval: { status: "pending", proposedAt },
+      },
+      options,
+    );
+  }
+
+  async decideConclusion(
+    id: string,
+    status: "approved" | "rejected",
+    patch: { text?: string; tags?: string[]; decidedBy?: string; note?: string } = {},
+  ): Promise<PathmarkRecord | undefined> {
+    await this.ensureReady();
+    return this.withWriteLock(async () => {
+      const db = await this.database();
+      const row = db.prepare("SELECT * FROM records WHERE id = ? AND deleted_at IS NULL").get(id) as IndexedRow | undefined;
+      if (!row) return undefined;
+      const existing = rowToRecord(row);
+      if (existing.kind !== "conclusion") throw new Error("Only conclusions can be approved or rejected");
+      const currentStatus = conclusionApprovalStatus(existing);
+      if (currentStatus === status) return existing;
+      if (currentStatus !== "pending") throw new Error(`Conclusion is ${currentStatus}; only pending conclusions can be decided`);
+
+      const text = patch.text === undefined ? existing.text : patch.text.trim();
+      if (!text) throw new Error("text is required");
+      if (status === "approved" && isUnsafeMemoryText(text)) {
+        throw new Error("Unsafe or instruction-like text cannot be approved as durable memory");
+      }
+      const now = new Date().toISOString();
+      const baseTags = patch.tags === undefined ? existing.tags : patch.tags;
+      const safeTags = memorySafetyTags(baseTags, text);
+      const tags = normalizeTags(withApprovalTag(safeTags, status));
+      const changed = text !== existing.text || tags.join("\u001f") !== existing.tags.join("\u001f");
+      const previous: PathmarkRecordVersion = {
+        text: existing.text,
+        tags: existing.tags,
+        source: existing.source,
+        updatedAt: existing.updatedAt,
+      };
+      const updated: PathmarkRecord = {
+        ...existing,
+        text,
+        tags,
+        updatedAt: now,
+        approval: {
+          status,
+          proposedAt: existing.approval?.proposedAt ?? existing.createdAt,
+          decidedAt: now,
+          ...(patch.decidedBy?.trim() ? { decidedBy: patch.decidedBy.trim() } : {}),
+          ...(patch.note?.trim() ? { note: patch.note.trim() } : {}),
+        },
+        ...(changed ? { history: [...(existing.history ?? []), previous].slice(-50) } : {}),
+      };
+      const replacements = new Map<string, PathmarkRecord>([[id, updated]]);
+      if (status === "approved" && existing.supersedes) {
+        const originalRow = db.prepare("SELECT * FROM records WHERE id = ? AND deleted_at IS NULL").get(existing.supersedes) as IndexedRow | undefined;
+        if (originalRow) {
+          const original = rowToRecord(originalRow);
+          replacements.set(original.id, { ...original, supersededBy: id, deletedAt: now, updatedAt: now });
+        }
+      }
+      await this.rewriteRecords(replacements);
+      indexRecords(db, [...replacements.values()]);
+      await updateIndexMetadata(db, this.config.memoryFile, currentInvalidRecordCount(db));
+      return updated;
+    });
   }
 
   async count(): Promise<number> {
@@ -396,6 +525,7 @@ export class PathmarkStore {
       const record = rowToRecord(row);
       if (input.kind && record.kind !== input.kind) continue;
       if (tagFilter.some((tag) => !record.tags.includes(tag))) continue;
+      if (!isRecallableRecord(record)) continue;
       results.push(scoreRecord(record, queryTerms));
     }
 
@@ -420,10 +550,13 @@ export class PathmarkStore {
         source: existing.source,
         updatedAt: existing.updatedAt,
       };
+      const replacementTags = patch.tags === undefined ? existing.tags : normalizeTags(patch.tags);
+      const safeTags = memorySafetyTags(replacementTags, text);
+      const approvalStatus = conclusionApprovalStatus(existing);
       const updated: PathmarkRecord = {
         ...existing,
         text,
-        tags: patch.tags === undefined ? existing.tags : normalizeTags(patch.tags),
+        tags: approvalStatus ? normalizeTags(withApprovalTag(safeTags, approvalStatus)) : normalizeTags(safeTags),
         source: patch.source?.trim() || existing.source,
         updatedAt: new Date().toISOString(),
         history: [...(existing.history ?? []), previous].slice(-50),
@@ -468,17 +601,20 @@ export class PathmarkStore {
       if (!row) return undefined;
       const existing = rowToRecord(row);
       const now = new Date().toISOString();
+      const approval = input.kind === "conclusion" ? input.approval : undefined;
+      const baseTags = memorySafetyTags(input.tags ?? existing.tags, input.text);
       const replacement: PathmarkRecord = {
         id: input.id?.trim() || randomUUID(),
         kind: input.kind,
         text: input.text.trim(),
-        tags: normalizeTags(input.tags ?? existing.tags),
+        tags: approval ? normalizeTags(withApprovalTag(baseTags, approval.status)) : normalizeTags(baseTags),
         source: input.source?.trim() || existing.source,
         createdAt: input.createdAt ?? now,
         updatedAt: input.updatedAt ?? now,
         supersedes: id,
         ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
         ...(input.activity ? { activity: input.activity } : {}),
+        ...(approval ? { approval } : {}),
       };
       if (!replacement.text) throw new Error("text is required");
       const superseded: PathmarkRecord = { ...existing, supersededBy: replacement.id, deletedAt: now, updatedAt: now };
@@ -927,13 +1063,17 @@ function diagnoseRecords(records: PathmarkRecord[], invalidRecordCount: number, 
     if (fingerprints.has(fingerprint)) duplicateCount += 1;
     else fingerprints.add(fingerprint);
   }
+  const conclusions = active.filter((record) => record.kind === "conclusion");
   return {
     totalRecords: records.length,
     activeRecords: active.length,
     deletedRecords: records.filter((record) => Boolean(record.deletedAt)).length,
     expiredRecords: records.filter((record) => Boolean(record.expiresAt && Date.parse(record.expiresAt) <= now)).length,
     exactDuplicateRecords: duplicateCount,
-    conclusions: active.filter((record) => record.kind === "conclusion").length,
+    conclusions: conclusions.length,
+    pendingConclusions: conclusions.filter((record) => conclusionApprovalStatus(record) === "pending").length,
+    approvedConclusions: conclusions.filter((record) => conclusionApprovalStatus(record) === "approved").length,
+    rejectedConclusions: conclusions.filter((record) => conclusionApprovalStatus(record) === "rejected").length,
     invalidRecordCount,
     indexFile,
   };
@@ -1011,6 +1151,10 @@ function recordFilters(input: { tagFilter: string[]; kind?: PathmarkRecordKind }
 } {
   const clauses: string[] = [];
   const parameters: Array<string | number> = [];
+  // Pending and rejected conclusions remain in the canonical audit trail but
+  // are structurally ineligible for every normal search/recall path.
+  clauses.push("NOT (records.kind = 'conclusion' AND (instr(records.tags_key, ?) > 0 OR instr(records.tags_key, ?) > 0))");
+  parameters.push(`\u001f${APPROVAL_PENDING_TAG}\u001f`, `\u001f${APPROVAL_REJECTED_TAG}\u001f`);
   if (input.kind) {
     clauses.push("records.kind = ?");
     parameters.push(input.kind);
@@ -1051,11 +1195,14 @@ function parseRecordLine(line: string): PathmarkRecord | undefined {
     if (value.occurrences !== undefined && (!Number.isInteger(value.occurrences) || Number(value.occurrences) < 1)) return undefined;
     if (value.history !== undefined && !isRecordHistory(value.history)) return undefined;
     if (value.activity !== undefined && !isPathmarkActivity(value.activity)) return undefined;
+    if (value.approval !== undefined && (!isPathmarkApproval(value.approval) || value.kind !== "conclusion")) return undefined;
+    const approval = value.approval;
+    const normalizedTags = normalizeTags(value.tags);
     return {
       id: value.id,
       kind: value.kind,
       text: value.text,
-      tags: normalizeTags(value.tags),
+      tags: approval ? normalizeTags(withApprovalTag(normalizedTags, approval.status)) : normalizedTags,
       source: value.source,
       createdAt: value.createdAt,
       updatedAt: value.updatedAt,
@@ -1066,6 +1213,7 @@ function parseRecordLine(line: string): PathmarkRecord | undefined {
       ...(typeof value.occurrences === "number" ? { occurrences: value.occurrences } : {}),
       ...(Array.isArray(value.history) ? { history: value.history as PathmarkRecordVersion[] } : {}),
       ...(value.activity ? { activity: value.activity } : {}),
+      ...(approval ? { approval } : {}),
     };
   } catch {
     return undefined;
@@ -1132,6 +1280,16 @@ function isPathmarkActivity(value: unknown): value is NonNullable<PathmarkRecord
   return true;
 }
 
+function isPathmarkApproval(value: unknown): value is NonNullable<PathmarkRecord["approval"]> {
+  if (!isRecord(value)) return false;
+  if (value.status !== "pending" && value.status !== "approved" && value.status !== "rejected") return false;
+  if (typeof value.proposedAt !== "string") return false;
+  for (const key of ["decidedAt", "decidedBy", "note"]) {
+    if (value[key] !== undefined && typeof value[key] !== "string") return false;
+  }
+  return true;
+}
+
 function scoreRecord(record: PathmarkRecord, queryTerms: string[]): SearchResult {
   const haystackTerms = new Set(tokenizeSearchText(`${record.text}\n${record.tags.join(" ")}\n${record.source}`));
   const textTerms = new Set(tokenizeSearchText(record.text));
@@ -1164,7 +1322,8 @@ function contentHash(record: Pick<PathmarkRecord, "id" | "kind" | "text" | "tags
       tag !== "immediate-prompt" &&
       tag !== "codex-raw" &&
       tag !== "codex-session" &&
-      tag !== "redacted",
+      tag !== "redacted" &&
+      !APPROVAL_STATE_TAGS.has(tag),
   );
   return createHash("sha256")
     .update(record.kind)
@@ -1358,6 +1517,11 @@ function envMs(name: string, fallback: number): number {
 
 function normalizeTags(tags: string[]): string[] {
   return [...new Set(tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean))].sort();
+}
+
+function memorySafetyTags(tags: string[], text: string): string[] {
+  const filtered = tags.filter((tag) => tag.trim().toLowerCase() !== QUARANTINED_MEMORY_TAG);
+  return isUnsafeMemoryText(text) ? [...filtered, QUARANTINED_MEMORY_TAG] : filtered;
 }
 
 function tagsKey(tags: string[]): string {

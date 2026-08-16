@@ -69,7 +69,7 @@ Gemini CLI  /
 Cursor     /
 ```
 
-Install Pathmark in each harness and point them at the same `PATHMARK_STORE_DIR`. One tool saves context with `remember` or `create_conclusion`; the next tool recovers it with `recall_memory`, `search_memory`, `get_context`, or `ask_memory`.
+Install Pathmark in each harness and point them at the same `PATHMARK_STORE_DIR`. One tool saves raw context with `remember` or proposes a durable conclusion with `create_conclusion`; an approved conclusion and raw evidence can then be recovered with `recall_memory`, `search_memory`, `get_context`, or `ask_memory`.
 
 Pathmark sits below the agents as a memory bus for your coding workflow.
 
@@ -80,12 +80,16 @@ Pathmark exposes these MCP tools:
 | Tool | Purpose |
 | --- | --- |
 | `remember` | Save a raw memory item. |
-| `create_conclusion` | Save a higher-signal durable conclusion or preference. |
+| `create_conclusion` | Propose a higher-signal durable conclusion or preference. Approval is required by default before recall. |
 | `search_memory` | Search memories and conclusions. |
 | `recall_memory` | Transparent recall: returns context plus the exact memory IDs, timestamps, sources, matches, tags, and previews used. Accepts optional `tags`, exact `ids`, and compact `includeRecords: false` output. |
 | `session_trace` | Return a bounded chronological audit trail for one session: prompts, exact injected memory IDs, redacted tool inputs/results, and answers. |
 | `get_context` | Return compact context for a task or question. |
-| `list_conclusions` | List saved conclusions. |
+| `list_conclusions` | List approved saved conclusions. |
+| `list_pending_conclusions` | Review bounded, paginated pending conclusion proposals. |
+| `approve_conclusion` | Atomically approve a proposal, optionally correcting text/tags and recording the reviewer. |
+| `reject_conclusion` | Retain a rejected proposal in the audit trail while permanently excluding it from recall. |
+| `get_memory_snapshot` | Generate a bounded USER/PROJECT/AGENT snapshot from approved canonical conclusions. |
 | `delete_memory` | Soft-delete a memory or conclusion by id. |
 | `update_memory` | Correct a record while preserving prior versions. |
 | `supersede_memory` | Replace an outdated record with a linked current record. |
@@ -238,7 +242,7 @@ The Codex adapter is proactive by default:
 - tool activity records include bounded redacted input previews and hashes, status, exit code, duration, and changed files when the hook provides them;
 - tool-output hashes are captured for correlation, while output text remains private by default and requires `PATHMARK_CODEX_CAPTURE_TOOL_OUTPUTS=on`;
 - activity records expire after 30 days and are physically capped at 5,000 records by default;
-- session start/resume injects relevant workspace memory;
+- session start/resume generates one bounded USER/PROJECT/AGENT snapshot from approved canonical conclusions, then injects relevant workspace memory;
 - each non-trivial user prompt searches exact workspace and project scopes first, then injects matching memory as Codex `additionalContext`;
 - automatic cross-project recall admits raw history only when the prompt explicitly names that project; otherwise the global fallback is limited to unscoped conclusions and memories deliberately tagged `global-memory`, `user-profile`, or `global-preference`;
 - broad cross-project history remains available through explicit `search_memory` / `recall_memory` calls without silently entering every prompt;
@@ -247,6 +251,10 @@ The Codex adapter is proactive by default:
 - legacy transport envelopes and assistant progress updates are excluded from session-start and proactive relevance results, while realtime delegation envelopes retain only their current `<input>` payload;
 - records containing Pathmark boundary escapes, instruction-override patterns, or invisible Unicode controls are tagged `memory-quarantined` and excluded from automatic recall; injected previews are escaped and explicitly treated as untrusted historical data;
 - no matching memory means no extra context is injected.
+
+Durable extraction is approval-gated by default. `create_conclusion` creates a pending proposal; pending and rejected conclusions stay in the canonical JSONL audit trail but are structurally excluded from normal search, exact-ID recall, prompt injection, and snapshots. Use `list_pending_conclusions`, then `approve_conclusion` or `reject_conclusion`. Conclusions created before this workflow are treated as already approved for backward compatibility. Raw `remember` records remain available as evidence and are not promoted automatically.
+
+The session snapshot is generated from the same canonical store rather than maintained as a second flat file. It is frozen in the session-start hook output; prompt-time scoped recall remains dynamic.
 
 Set `PATHMARK_CODEX_PROACTIVE_RECALL=off` if you want Codex hooks to capture memory but stop prompt-time recall.
 Set `PATHMARK_CODEX_VISIBLE_RECALL=off` if you want prompt-time recall without the visible `recall_memory` tool-call request.
@@ -278,6 +286,9 @@ pathmark codex uninstall
 | `PATHMARK_CODEX_PROACTIVE_RECALL` | `on` | Automatically inject relevant Pathmark context before non-trivial Codex prompts. Use `off` to capture without prompt-time recall. |
 | `PATHMARK_CODEX_VISIBLE_RECALL` | `on` | Ask Codex to call `recall_memory` when prompt-time recall found context, so the UI shows the exact `usedMemories`. |
 | `PATHMARK_CODEX_CAPTURE_TOOL_OUTPUTS` | `off` | Store bounded redacted tool-output previews. Output hashes, status, duration, and exit codes remain available when this is off. |
+| `PATHMARK_CODEX_MEMORY_SNAPSHOT` | `on` | Generate a bounded approved-conclusion snapshot at Codex session start/resume. |
+| `PATHMARK_SNAPSHOT_CHARS` | `4000` | Character budget for generated snapshots; clamped to 500–12000. |
+| `PATHMARK_CONCLUSION_APPROVAL` | `on` | Stage new conclusions for explicit approval. Set `off` only for trusted legacy automation. |
 | `PATHMARK_SYNTHESIS_PROVIDER` | `client` | `client`, `command`, `codex`, or `openai-compatible`. |
 | `PATHMARK_CHAT_COMMAND` | unset | Command provider: receives a synthesized prompt on stdin and writes an answer on stdout. |
 | `PATHMARK_CODEX_COMMAND` | `codex` | Codex provider command. |
@@ -291,7 +302,7 @@ pathmark codex uninstall
 | `PATHMARK_RETENTION_DAYS` | `0` | Retention policy used by compaction; `0` disables age-based removal. Conclusions are retained. |
 | `PATHMARK_ACTIVITY_RETENTION_DAYS` | `30` | Automatic lifetime for recall/tool activity records; `0` disables age-based activity expiry. |
 | `PATHMARK_ACTIVITY_MAX_RECORDS` | `5000` | Physical cap for activity records; oldest activity is removed automatically. `0` disables the count cap. |
-| `PATHMARK_RERANK_COMMAND` | unset | Optional local hybrid reranker. Receives query/candidates as JSON on stdin and returns ranked memory ids. |
+| `PATHMARK_RERANK_COMMAND` | unset | Optional trusted local embedding/vector or hybrid reranker. Strict kind/tag/namespace filters are applied before candidates leave the store; the command receives query/candidates as JSON on stdin and returns ranked memory ids. |
 | `PATHMARK_HYBRID_CANDIDATES` | `500` | Maximum candidates sent to the optional reranker. |
 | `PATHMARK_RETRIEVAL_TIMEOUT_MS` | `30000` | Timeout for the optional reranker. |
 | `PATHMARK_EXPORT_KEY` | unset | Passphrase for AES-256-GCM portable exports/imports. Never returned by `get_config`. |

@@ -1,4 +1,4 @@
-import type { PathmarkConfig, ActivityRetentionResult, PathmarkActivity, PathmarkRecord, PathmarkRecordDraft, PathmarkRecordKind, SearchResult, StoreDiagnosis, StoreMaintenanceResult } from "./types.js";
+import type { PathmarkConfig, PathmarkApprovalStatus, ActivityRetentionResult, PathmarkActivity, PathmarkRecord, PathmarkRecordDraft, PathmarkRecordKind, SearchResult, StoreDiagnosis, StoreMaintenanceResult } from "./types.js";
 interface StoreHealth {
     indexFile: string;
     invalidRecordCount: number;
@@ -42,6 +42,22 @@ export declare class PathmarkStore {
         includeDeleted?: boolean;
         kind?: PathmarkRecordKind;
     }): Promise<PathmarkRecord[]>;
+    listConclusions(input?: {
+        status?: PathmarkApprovalStatus;
+        tags?: string[];
+        limit?: number;
+        offset?: number;
+    }): Promise<PathmarkRecord[]>;
+    proposeConclusion(input: Omit<PathmarkRecordDraft, "kind" | "approval">, options?: AddRecordsOptions): Promise<{
+        record: PathmarkRecord;
+        created: boolean;
+    }>;
+    decideConclusion(id: string, status: "approved" | "rejected", patch?: {
+        text?: string;
+        tags?: string[];
+        decidedBy?: string;
+        note?: string;
+    }): Promise<PathmarkRecord | undefined>;
     count(): Promise<number>;
     recordsWithTags(tags: string[], options?: {
         kind?: PathmarkRecordKind;

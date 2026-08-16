@@ -59,6 +59,46 @@ await store.addRecords([
     createdAt: at,
   },
   {
+    id: "scoped-spanish-policy",
+    kind: "memory",
+    text: "La memoria del proyecto requiere aprobación antes de guardar conclusiones duraderas.",
+    tags: scoped("pathmark", "/workspace/pathmark"),
+    source: "quality-fixture",
+    createdAt: at,
+  },
+  {
+    id: "scoped-chinese-snapshot",
+    kind: "memory",
+    text: "会话启动快照只包含已批准的结论。",
+    tags: scoped("pathmark", "/workspace/pathmark"),
+    source: "quality-fixture",
+    createdAt: at,
+  },
+  {
+    id: "scoped-ukrainian-scope",
+    kind: "memory",
+    text: "Фільтрація робочого простору виконується перед гібридним ранжуванням.",
+    tags: scoped("pathmark", "/workspace/pathmark"),
+    source: "quality-fixture",
+    createdAt: at,
+  },
+  {
+    id: "scoped-german-audit",
+    kind: "memory",
+    text: "Abgelehnte Schlussfolgerungen bleiben im Audit, werden aber niemals abgerufen.",
+    tags: scoped("pathmark", "/workspace/pathmark"),
+    source: "quality-fixture",
+    createdAt: at,
+  },
+  {
+    id: "scoped-french-canonical",
+    kind: "memory",
+    text: "Le snapshot est généré depuis le stockage canonique sans fichier mémoire parallèle.",
+    tags: scoped("pathmark", "/workspace/pathmark"),
+    source: "quality-fixture",
+    createdAt: at,
+  },
+  {
     id: "cross-meetily",
     kind: "memory",
     text: "Meetily transcription design uses a local-first desktop capture architecture.",
@@ -114,12 +154,31 @@ await store.addRecords([
   })),
 ]);
 
+await store.proposeConclusion({
+  id: "quality-pending-hidden",
+  text: "Pending quality proposal must never enter automatic recall.",
+  tags: ["user-profile"],
+  source: "quality-fixture",
+});
+const { record: rejectedQuality } = await store.proposeConclusion({
+  id: "quality-rejected-hidden",
+  text: "Rejected quality proposal must never enter automatic recall.",
+  tags: ["user-profile"],
+  source: "quality-fixture",
+});
+await store.decideConclusion(rejectedQuality.id, "rejected", { decidedBy: "quality-eval" });
+
 const positiveCases = [
   ["/workspace/pathmark", "How does Pathmark expose visible evidence IDs and provenance?", "scoped-visible-evidence"],
   ["/workspace/pathmark", "Как русский ranking исключает нерелевантные проекты?", "scoped-russian-ranking"],
   ["/workspace/pathmark", "How do project scope and exact workspace handle worktrees?", "scoped-worktree-scope"],
   ["/workspace/pathmark", "Why are injected previews escaped as untrusted historical data?", "scoped-safe-preview"],
   ["/workspace/pathmark", "When should automatic recall abstain after scoped ranking?", "scoped-abstention"],
+  ["/workspace/pathmark", "¿Por qué las conclusiones duraderas requieren aprobación?", "scoped-spanish-policy"],
+  ["/workspace/pathmark", "会话启动快照包含哪些已批准的结论？", "scoped-chinese-snapshot"],
+  ["/workspace/pathmark", "Коли виконується фільтрація робочого простору перед ранжуванням?", "scoped-ukrainian-scope"],
+  ["/workspace/pathmark", "Was passiert mit abgelehnten Schlussfolgerungen im Audit?", "scoped-german-audit"],
+  ["/workspace/pathmark", "D'où vient le snapshot canonique sans fichier parallèle?", "scoped-french-canonical"],
   ["/workspace/blank-one", "Recall the Meetily transcription local-first capture architecture.", "cross-meetily"],
   ["/workspace/blank-two", "What is the call-center Mexico calls daily schedule before 17:30?", "cross-call-center"],
   ["/workspace/blank-three", "How does md-adopt match shelter pets and temperament preferences?", "cross-md-adopt"],
@@ -153,6 +212,11 @@ const negativeQueries = [
   "How do migratory birds navigate long distances?",
   "Translate good evening into Romanian.",
   "What causes a lunar eclipse?",
+  "كيف تتشكل الكثبان الرملية في الصحراء؟",
+  "如何给兰花安排每周浇水计划？",
+  "¿Qué diferencia hay entre un cometa y un asteroide?",
+  "Pourquoi les abeilles dansent-elles dans la ruche ?",
+  "Як приготувати гречану кашу без молока?",
 ];
 
 for (const [index, query] of negativeQueries.entries()) {

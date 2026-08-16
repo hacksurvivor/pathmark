@@ -6,6 +6,7 @@ import { isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "../memory-safety.js"
 import { redactSecrets } from "../redact.js";
 import { filterLowSignalResults, informativeSearchTerms, selectRelevantResults } from "../relevance.js";
 import { PathmarkStore } from "../store.js";
+import { buildMemorySnapshot } from "../snapshot.js";
 import { tokenizeSearchText } from "../tokenize.js";
 import { captureToolActivity, digest } from "./activity.js";
 import { readCursorState, writeCursor } from "./cursor.js";
@@ -25,15 +26,21 @@ export async function recall(input) {
     const config = loadConfig();
     const store = new PathmarkStore(config);
     const query = recallQuery(input);
-    if (!query)
-        return memoryBlock([], config.memoryFile);
     try {
+        const snapshot = config.codexMemorySnapshot
+            ? await buildMemorySnapshot(store, { scopeTags: primaryPromptRecallTags(input), charLimit: config.snapshotCharLimit })
+            : undefined;
+        if (!query)
+            return joinSnapshot(snapshot?.context, memoryBlock([], config.memoryFile));
         const results = await recallSearchResults(store, query, input);
-        return memoryBlock(filterLowSignalResults(filterRecallResults(results, input)).slice(0, 8), config.memoryFile);
+        return joinSnapshot(snapshot?.context, memoryBlock(filterLowSignalResults(filterRecallResults(results, input)).slice(0, 8), config.memoryFile));
     }
     catch {
         return memoryBlock([], config.memoryFile);
     }
+}
+function joinSnapshot(snapshot, recallBlock) {
+    return snapshot ? `${snapshot}\n\n${recallBlock}` : recallBlock;
 }
 export async function prompt(input) {
     const text = normalizeCodexUserMessage(input.prompt ?? "");
