@@ -61,6 +61,14 @@ try {
   const tools = await request("tools/list");
   const byName = new Map(tools.tools.map((tool) => [tool.name, tool]));
   assert.equal(byName.has("session_trace"), true);
+  for (const toolName of [
+    "list_pending_conclusions",
+    "approve_conclusion",
+    "reject_conclusion",
+    "get_memory_snapshot",
+  ]) {
+    assert.equal(byName.has(toolName), true, `installed canary missing ${toolName}`);
+  }
   assert.equal("ids" in (byName.get("recall_memory")?.inputSchema?.properties ?? {}), true);
   assert.equal("includeRecords" in (byName.get("recall_memory")?.inputSchema?.properties ?? {}), true);
 
