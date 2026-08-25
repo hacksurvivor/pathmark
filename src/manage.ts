@@ -8,7 +8,7 @@ import { answerMemory } from "./memory-query.js";
 import { redactSecrets } from "./redact.js";
 import { decryptPortableExport } from "./portable.js";
 import { namespaceTag, PathmarkStore } from "./store.js";
-import type { PathmarkActivity, PathmarkRecordDraft, PathmarkRecordKind } from "./types.js";
+import type { PathmarkActivity, PathmarkApproval, PathmarkRecordDraft, PathmarkRecordKind } from "./types.js";
 
 const USAGE = [
   "Usage:",
@@ -250,6 +250,7 @@ async function importDrafts(
       expiresAt: typeof value.expiresAt === "string" ? value.expiresAt : undefined,
       supersedes: typeof value.supersedes === "string" ? value.supersedes : undefined,
       activity: importedActivity(value.activity),
+      approval: value.kind === "conclusion" ? importedApproval(value.approval) : undefined,
       evidenceIds:
         value.kind === "conclusion" && Array.isArray(value.evidenceIds)
           ? value.evidenceIds.filter((id): id is string => typeof id === "string" && Boolean(id.trim()))
@@ -257,6 +258,20 @@ async function importDrafts(
     });
   }
   return drafts;
+}
+
+function importedApproval(value: unknown): PathmarkApproval | undefined {
+  if (!isObject(value)) return undefined;
+  if (value.status !== "pending" && value.status !== "approved" && value.status !== "rejected") return undefined;
+  if (typeof value.proposedAt !== "string" || !value.proposedAt.trim()) return undefined;
+  if (!optionalStrings(value, ["decidedAt", "decidedBy", "note"])) return undefined;
+  return {
+    status: value.status,
+    proposedAt: value.proposedAt,
+    ...(typeof value.decidedAt === "string" ? { decidedAt: value.decidedAt } : {}),
+    ...(typeof value.decidedBy === "string" ? { decidedBy: value.decidedBy } : {}),
+    ...(typeof value.note === "string" ? { note: value.note } : {}),
+  };
 }
 
 function importedActivity(value: unknown): PathmarkActivity | undefined {

@@ -187,12 +187,30 @@ async function importDrafts(file, namespace, redact, encryptionKey) {
             expiresAt: typeof value.expiresAt === "string" ? value.expiresAt : undefined,
             supersedes: typeof value.supersedes === "string" ? value.supersedes : undefined,
             activity: importedActivity(value.activity),
+            approval: value.kind === "conclusion" ? importedApproval(value.approval) : undefined,
             evidenceIds: value.kind === "conclusion" && Array.isArray(value.evidenceIds)
                 ? value.evidenceIds.filter((id) => typeof id === "string" && Boolean(id.trim()))
                 : undefined,
         });
     }
     return drafts;
+}
+function importedApproval(value) {
+    if (!isObject(value))
+        return undefined;
+    if (value.status !== "pending" && value.status !== "approved" && value.status !== "rejected")
+        return undefined;
+    if (typeof value.proposedAt !== "string" || !value.proposedAt.trim())
+        return undefined;
+    if (!optionalStrings(value, ["decidedAt", "decidedBy", "note"]))
+        return undefined;
+    return {
+        status: value.status,
+        proposedAt: value.proposedAt,
+        ...(typeof value.decidedAt === "string" ? { decidedAt: value.decidedAt } : {}),
+        ...(typeof value.decidedBy === "string" ? { decidedBy: value.decidedBy } : {}),
+        ...(typeof value.note === "string" ? { note: value.note } : {}),
+    };
 }
 function importedActivity(value) {
     if (!isObject(value))
