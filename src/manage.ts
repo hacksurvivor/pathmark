@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { auditMemory } from "./audit.js";
+import { consolidateMemory } from "./consolidate.js";
 import { loadConfig } from "./config.js";
+import { answerMemory } from "./memory-query.js";
 import { redactSecrets } from "./redact.js";
 import { decryptPortableExport } from "./portable.js";
 import { namespaceTag, PathmarkStore } from "./store.js";
@@ -10,6 +12,8 @@ import type { PathmarkActivity, PathmarkRecordDraft, PathmarkRecordKind } from "
 
 const USAGE = [
   "Usage:",
+  "  pathmark chat QUESTION [--namespace=NAME] [--tag=TAG] [--limit=N] [--kind=memory|conclusion]",
+  "  pathmark consolidate [--days=N] [--namespace=NAME] [--tag=TAG] [--limit=N] [--max-proposals=N] [--apply]",
   "  pathmark audit [--days=N] [--namespace=NAME] [--tag=TAG]",
   "  pathmark doctor",
   "  pathmark compact [--apply] [--retention-days=N] [--keep-deleted] [--no-dedupe]",
@@ -25,6 +29,40 @@ export async function runManagementCommand(command: string, args: string[]): Pro
   const store = new PathmarkStore(config);
   const options = parseOptions(args);
 
+  if (command === "chat") {
+    const question = option(options, "question") ?? options.positionals.join(" ").trim();
+    if (!question) throw new Error(`Chat requires a question.\n${USAGE}`);
+    const kind = option(options, "kind");
+    if (kind && kind !== "memory" && kind !== "conclusion") throw new Error("--kind must be memory or conclusion");
+    console.log(
+      JSON.stringify(
+        await answerMemory(store, config, question, {
+          limit: numberOption(options, "limit", config.maxSearchResults),
+          tags: scopedTags(options.values.get("tag") ?? [], option(options, "namespace")),
+          kind: kind as PathmarkRecordKind | undefined,
+        }),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  if (command === "consolidate") {
+    console.log(
+      JSON.stringify(
+        await consolidateMemory(store, config, {
+          days: numberOption(options, "days", 90),
+          evidenceLimit: numberOption(options, "limit", 24),
+          maxProposals: numberOption(options, "max-proposals", 5),
+          tags: scopedTags(options.values.get("tag") ?? [], option(options, "namespace")),
+          apply: options.flags.has("apply"),
+        }),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
   if (command === "audit") {
     console.log(
       JSON.stringify(
@@ -212,6 +250,10 @@ async function importDrafts(
       expiresAt: typeof value.expiresAt === "string" ? value.expiresAt : undefined,
       supersedes: typeof value.supersedes === "string" ? value.supersedes : undefined,
       activity: importedActivity(value.activity),
+      evidenceIds:
+        value.kind === "conclusion" && Array.isArray(value.evidenceIds)
+          ? value.evidenceIds.filter((id): id is string => typeof id === "string" && Boolean(id.trim()))
+          : undefined,
     });
   }
   return drafts;

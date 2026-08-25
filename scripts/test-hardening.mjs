@@ -117,7 +117,7 @@ async function testIndexedStore() {
   );
   const results = await store.search({ query: "decision 1999", limit: 5 });
   assert.equal(results.some((result) => result.record.id === "indexed-1999"), true);
-  assert.equal((await readdir(storeDir)).includes("memory.index.v4.sqlite"), true);
+  assert.equal((await readdir(storeDir)).includes("memory.index.v5.sqlite"), true);
   assert.equal(await readFile(legacyIndex, "utf8"), "legacy-index-sentinel");
 }
 
@@ -128,7 +128,7 @@ async function testBusyIndexIsNotRenamedAsCorrupt() {
   await store.add({ id: "busy-one", kind: "memory", text: "busy index record", source: "hardening-test" });
   await store.search({ query: "busy index" });
 
-  const indexFile = path.join(storeDir, "memory.index.v4.sqlite");
+  const indexFile = path.join(storeDir, "memory.index.v5.sqlite");
   const locker = spawn(
     process.execPath,
     [

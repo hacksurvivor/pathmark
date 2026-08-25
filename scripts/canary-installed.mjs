@@ -65,6 +65,7 @@ try {
     "list_pending_conclusions",
     "approve_conclusion",
     "reject_conclusion",
+    "consolidate_memory",
     "get_memory_snapshot",
     "audit_memory",
   ]) {

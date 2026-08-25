@@ -28,6 +28,16 @@ try {
   assert.equal(auditPayload.inventory.rawEvidenceRecords, 1);
   assert.equal(auditPayload.precision.status, "unlabeled");
 
+  const chat = run(sourceDir, ["chat", "Managed scoped record", "--namespace=managed"]);
+  assert.equal(chat.status, 0, chat.stderr);
+  const chatPayload = JSON.parse(chat.stdout);
+  assert.equal(chatPayload.retrievalMode, "raw_evidence_fallback");
+  assert.equal(chatPayload.usedMemories[0].id, "manage-one");
+
+  const consolidation = run(sourceDir, ["consolidate", "--namespace=managed"]);
+  assert.equal(consolidation.status, 0, consolidation.stderr);
+  assert.equal(JSON.parse(consolidation.stdout).status, "no_evidence");
+
   const exported = run(sourceDir, ["export", `--output=${exportFile}`, "--namespace=managed"]);
   assert.equal(exported.status, 0, exported.stderr);
   assert.equal(JSON.parse(exported.stdout).recordCount, 1);

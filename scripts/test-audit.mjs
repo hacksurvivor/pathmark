@@ -53,6 +53,7 @@ try {
       tags: ["workspace:audit", "decision"],
       source: "audit-test",
       createdAt: "2026-08-10T00:00:00.000Z",
+      evidenceIds: ["fresh-evidence"],
     },
     {
       id: "recall-event",
@@ -92,6 +93,10 @@ try {
   assert.equal(audit.recall.createdAndRecalledInWindow, 2);
   assert.equal(audit.recall.staleRawReferences, 1);
   assert.equal(audit.recall.staleRawHitRate, 0.5);
+  assert.equal(audit.inventory.evidenceBackedConclusions, 1);
+  assert.equal(audit.synthesis.uniqueEvidenceReferenced, 1);
+  assert.equal(audit.synthesis.unprocessedRawEvidenceRecords, 2);
+  assert.equal(audit.synthesis.rawEvidenceConclusionCoverage, 0.3333);
   assert.equal(audit.precision.status, "unlabeled");
   assert.equal(audit.precision.value, null);
 

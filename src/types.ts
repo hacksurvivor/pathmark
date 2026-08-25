@@ -59,6 +59,7 @@ export interface PathmarkRecord {
   history?: PathmarkRecordVersion[];
   activity?: PathmarkActivity;
   approval?: PathmarkApproval;
+  evidenceIds?: string[];
 }
 
 export interface PathmarkRecordDraft {
@@ -73,6 +74,7 @@ export interface PathmarkRecordDraft {
   supersedes?: string;
   activity?: PathmarkActivity;
   approval?: PathmarkApproval;
+  evidenceIds?: string[];
 }
 
 export interface PathmarkConfig {
@@ -94,6 +96,8 @@ export interface PathmarkConfig {
   snapshotCharLimit: number;
   codexRawRecallDays: number;
   codexRawRecallLimit: number;
+  codexProactiveConsolidation: boolean;
+  consolidationMinEvidence: number;
   conclusionApprovalRequired: boolean;
   defaultNamespace?: string;
   redactMcpWrites: boolean;

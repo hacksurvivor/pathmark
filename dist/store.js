@@ -15,7 +15,7 @@ const DEFAULT_NO_OWNER_STALE_LOCK_MS = 5000;
 const LOCK_OWNER_FILE = "owner.json";
 const WRITE_LOCK_DIR = ".memory.lock";
 const INDEX_LOCK_DIR = ".memory.index.lock";
-const INDEX_SCHEMA_VERSION = "4";
+const INDEX_SCHEMA_VERSION = "5";
 const INDEX_FILE = `memory.index.v${INDEX_SCHEMA_VERSION}.sqlite`;
 const SEARCH_CANDIDATE_LIMIT = 2000;
 const ACTIVITY_TAG = "pathmark-activity";
@@ -124,6 +124,9 @@ export class PathmarkStore {
                     ...(input.supersedes ? { supersedes: input.supersedes } : {}),
                     ...(input.activity ? { activity: input.activity } : {}),
                     ...(approval ? { approval } : {}),
+                    ...(input.kind === "conclusion" && input.evidenceIds
+                        ? { evidenceIds: normalizeEvidenceIds(input.evidenceIds) }
+                        : {}),
                 };
                 if (findDuplicate) {
                     const hash = contentHash(record);
@@ -493,6 +496,9 @@ export class PathmarkStore {
                 ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
                 ...(input.activity ? { activity: input.activity } : {}),
                 ...(approval ? { approval } : {}),
+                ...(input.kind === "conclusion" && input.evidenceIds
+                    ? { evidenceIds: normalizeEvidenceIds(input.evidenceIds) }
+                    : {}),
             };
             if (!replacement.text)
                 throw new Error("text is required");
@@ -1050,6 +1056,12 @@ function parseRecordLine(line) {
             return undefined;
         if (value.approval !== undefined && (!isPathmarkApproval(value.approval) || value.kind !== "conclusion"))
             return undefined;
+        if (value.evidenceIds !== undefined &&
+            (value.kind !== "conclusion" ||
+                !Array.isArray(value.evidenceIds) ||
+                !value.evidenceIds.every((id) => typeof id === "string" && id.trim()))) {
+            return undefined;
+        }
         const approval = value.approval;
         const normalizedTags = normalizeTags(value.tags);
         return {
@@ -1068,6 +1080,7 @@ function parseRecordLine(line) {
             ...(Array.isArray(value.history) ? { history: value.history } : {}),
             ...(value.activity ? { activity: value.activity } : {}),
             ...(approval ? { approval } : {}),
+            ...(Array.isArray(value.evidenceIds) ? { evidenceIds: normalizeEvidenceIds(value.evidenceIds) } : {}),
         };
     }
     catch {
@@ -1187,6 +1200,9 @@ function contentHash(record) {
 }
 function normalizeContent(text) {
     return text.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+}
+function normalizeEvidenceIds(ids) {
+    return [...new Set(ids.map((id) => id.trim()).filter(Boolean))].slice(0, 100);
 }
 function scorePriority(record) {
     let priority = 0;

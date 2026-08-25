@@ -47,7 +47,7 @@ Confirm the canonical store and derived index are present:
 
 ```bash
 test -f ~/.pathmark/memory/memory.jsonl
-test -f ~/.pathmark/memory/memory.index.v4.sqlite
+test -f ~/.pathmark/memory/memory.index.v5.sqlite
 ```
 
 ## GitHub and npm release

@@ -74,6 +74,7 @@ for (const required of [
   "list_pending_conclusions",
   "approve_conclusion",
   "reject_conclusion",
+  "consolidate_memory",
   "get_memory_snapshot",
   "ask_memory",
   "chat",
@@ -241,11 +242,30 @@ if (!scopedText.includes("Namespace alpha decision") || scopedText.includes("Nam
 
 const proposalCall = await request("tools/call", {
   name: "create_conclusion",
-  arguments: { text: "Approved smoke preference uses concise reports.", tags: ["user-profile"], source: "smoke" },
+  arguments: {
+    text: "Approved smoke preference uses concise reports.",
+    tags: ["user-profile"],
+    source: "smoke",
+    evidenceIds: [savedRecord.id],
+  },
 });
 const proposalPayload = JSON.parse(proposalCall.content?.[0]?.text ?? "{}");
 if (proposalPayload.status !== "pending_approval" || !proposalPayload.proposal?.id) {
   throw new Error("create_conclusion did not stage a pending proposal");
+}
+if (proposalPayload.proposal.evidenceIds?.[0] !== savedRecord.id) {
+  throw new Error("create_conclusion did not preserve evidence provenance");
+}
+const crossScopeProposal = await request("tools/call", {
+  name: "create_conclusion",
+  arguments: {
+    text: "This cross-scope proposal must fail.",
+    namespace: "alpha",
+    evidenceIds: [savedRecord.id],
+  },
+});
+if (!crossScopeProposal.isError || !(crossScopeProposal.content?.[0]?.text ?? "").includes("outside the conclusion scope")) {
+  throw new Error("create_conclusion accepted cross-scope evidence provenance");
 }
 const hiddenProposal = await request("tools/call", {
   name: "search_memory",

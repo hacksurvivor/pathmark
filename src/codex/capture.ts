@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
+import {
+  consolidationNudge,
+  prepareConsolidationBatch,
+  type ConsolidationBatch,
+} from "../consolidate.js";
 import { loadConfig } from "../config.js";
 import { deterministicId } from "../ids.js";
 import { isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "../memory-safety.js";
@@ -53,17 +58,39 @@ export async function recall(input: CodexHookInput): Promise<string> {
   const config = loadConfig();
   const store = new PathmarkStore(config);
   try {
-    const snapshot = config.codexMemorySnapshot
-      ? await buildMemorySnapshot(store, { scopeTags: primaryPromptRecallTags(input), charLimit: config.snapshotCharLimit })
-      : undefined;
-    return joinSnapshot(snapshot?.context, memoryBlock([], config.memoryFile));
+    const [snapshot, consolidation] = await Promise.all([
+      config.codexMemorySnapshot
+        ? buildMemorySnapshot(store, { scopeTags: primaryPromptRecallTags(input), charLimit: config.snapshotCharLimit })
+        : undefined,
+      config.codexProactiveConsolidation
+        ? proactiveConsolidationBatch(store, input, config.consolidationMinEvidence).catch(() => undefined)
+        : undefined,
+    ]);
+    return joinSnapshot(
+      snapshot?.context,
+      memoryBlock([], config.memoryFile),
+      consolidation ? consolidationNudge(consolidation, config.consolidationMinEvidence) : "",
+    );
   } catch {
     return memoryBlock([], config.memoryFile);
   }
 }
 
-function joinSnapshot(snapshot: string | undefined, recallBlock: string): string {
-  return snapshot ? `${snapshot}\n\n${recallBlock}` : recallBlock;
+function joinSnapshot(snapshot: string | undefined, recallBlock: string, consolidation = ""): string {
+  return [snapshot, consolidation, recallBlock].filter(Boolean).join("\n\n");
+}
+
+async function proactiveConsolidationBatch(
+  store: PathmarkStore,
+  input: CodexHookInput,
+  minimumEvidence: number,
+): Promise<ConsolidationBatch | undefined> {
+  const tagFilters = promptRecallTagFilters(input).filter((tags) => !tags.some((tag) => tag.startsWith("session:")));
+  for (const tags of tagFilters) {
+    const batch = await prepareConsolidationBatch(store, { tags, evidenceLimit: 1 });
+    if (batch.backlogCount >= minimumEvidence) return batch;
+  }
+  return undefined;
 }
 
 export async function prompt(input: CodexHookInput): Promise<string> {

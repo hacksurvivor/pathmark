@@ -14,6 +14,9 @@ export async function auditMemory(store, options = {}) {
     const eligible = selected.filter((record) => !isActivity(record));
     const rawEvidence = eligible.filter((record) => record.kind === "memory");
     const conclusions = eligible.filter((record) => record.kind === "conclusion");
+    const synthesisEligibleConclusions = conclusions.filter((record) => conclusionApprovalStatus(record) !== "rejected" && (record.evidenceIds?.length ?? 0) > 0);
+    const evidenceReferences = synthesisEligibleConclusions.flatMap((record) => record.evidenceIds ?? []);
+    const referencedEvidenceIds = new Set(evidenceReferences.filter((id) => selectedIds.has(id)));
     const recallEvents = selected
         .filter((record) => record.activity?.type === "recall")
         .filter((record) => inWindow(record.createdAt, windowStartMs))
@@ -59,6 +62,7 @@ export async function auditMemory(store, options = {}) {
             approvedConclusions: conclusions.filter((record) => conclusionApprovalStatus(record) === "approved").length,
             pendingConclusions: conclusions.filter((record) => conclusionApprovalStatus(record) === "pending").length,
             rejectedConclusions: conclusions.filter((record) => conclusionApprovalStatus(record) === "rejected").length,
+            evidenceBackedConclusions: synthesisEligibleConclusions.length,
             exactDuplicateRecords: duplicateRecords,
             exactDuplicateRate: ratio(duplicateRecords, eligible.length),
         },
@@ -84,6 +88,13 @@ export async function auditMemory(store, options = {}) {
                 median: percentile(ages, 0.5),
                 p95: percentile(ages, 0.95),
             },
+        },
+        synthesis: {
+            evidenceReferences: evidenceReferences.length,
+            uniqueEvidenceReferenced: referencedEvidenceIds.size,
+            missingEvidenceReferences: evidenceReferences.filter((id) => !allById.has(id)).length,
+            unprocessedRawEvidenceRecords: rawEvidence.filter((record) => !referencedEvidenceIds.has(record.id)).length,
+            rawEvidenceConclusionCoverage: ratio(referencedEvidenceIds.size, rawEvidence.length),
         },
         precision: {
             status: "unlabeled",

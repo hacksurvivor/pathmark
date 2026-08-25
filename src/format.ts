@@ -38,6 +38,8 @@ export function publicConfig(config: PathmarkConfig): Record<string, unknown> {
     snapshotCharLimit: config.snapshotCharLimit,
     codexRawRecallDays: config.codexRawRecallDays,
     codexRawRecallLimit: config.codexRawRecallLimit,
+    codexProactiveConsolidation: config.codexProactiveConsolidation,
+    consolidationMinEvidence: config.consolidationMinEvidence,
     conclusionApprovalRequired: config.conclusionApprovalRequired,
     defaultNamespace: config.defaultNamespace ?? "unscoped",
     redactMcpWrites: config.redactMcpWrites,

@@ -3,10 +3,23 @@
 Carry intent across agents without turning stale code facts into hidden memory.
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/pathmark"><img src="https://img.shields.io/npm/v/pathmark?label=version" alt="current Pathmark npm version"></a>
   <a href="https://www.npmjs.com/package/pathmark"><img src="https://img.shields.io/npm/dt/pathmark?label=npm%20downloads" alt="npm downloads"></a>
   <a href="https://www.npmjs.com/package/pathmark"><img src="https://img.shields.io/npm/dw/pathmark?label=weekly%20downloads" alt="weekly npm downloads"></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/hacksurvivor/pathmark"><img src="https://api.scorecard.dev/projects/github.com/hacksurvivor/pathmark/badge" alt="OpenSSF Scorecard"></a>
 </p>
+
+## What's New — v0.1.11
+
+The next Pathmark release turns captured history into proactively useful, auditable intent:
+
+- approved conclusions are recalled before raw session evidence;
+- `consolidate_memory` and `pathmark consolidate` turn bounded raw evidence batches into evidence-backed, approval-gated conclusion proposals;
+- Codex receives a proactive consolidation nudge when scoped evidence is piling up unsynthesized;
+- `chat` / `ask_memory` are conclusion-first, and `pathmark chat "question"` makes the same workflow available from the CLI;
+- `pathmark audit` measures recall, stale hits, duplicates, and raw-evidence-to-conclusion coverage without pretending unlabeled retrieval has a precision score.
+
+See the [v0.1.11 release notes](docs/releases/v0.1.11.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/hacksurvivor/pathmark/main/assets/pathmark-hero.png" alt="Pathmark local intent and provenance shared by Codex, Claude Code, opencode, and Gemini CLI" width="100%">
@@ -41,7 +54,7 @@ You do not work in one tool. You ask Codex to patch, Claude Code to review, open
 Pathmark gives those tools one place to read and write intent and evidence:
 
 - One local JSONL store across harnesses.
-- Standard MCP tools: `remember`, `search_memory`, `recall_memory`, `session_trace`, `get_context`, and `ask_memory`.
+- Standard MCP tools include `remember`, `search_memory`, `recall_memory`, `session_trace`, `consolidate_memory`, `audit_memory`, and conclusion-first `chat` / `ask_memory`.
 - Client-side synthesis by default, so your coding agent reads the context and answers.
 - Optional Codex CLI, local command, and OpenAI-compatible synthesis modes.
 - Plain files you can inspect, back up, delete, or migrate.
@@ -92,6 +105,7 @@ Pathmark exposes these MCP tools:
 | `approve_conclusion` | Atomically approve a proposal, optionally correcting text/tags and recording the reviewer. |
 | `reject_conclusion` | Retain a rejected proposal in the audit trail while permanently excluding it from recall. |
 | `get_memory_snapshot` | Generate a bounded USER/PROJECT/AGENT snapshot from approved canonical conclusions. |
+| `consolidate_memory` | Review a bounded unsynthesized evidence batch and optionally stage evidence-backed proposals. Nothing is auto-approved. |
 | `delete_memory` | Soft-delete a memory or conclusion by id. |
 | `update_memory` | Correct a record while preserving prior versions. |
 | `supersede_memory` | Replace an outdated record with a linked current record. |
@@ -295,6 +309,8 @@ pathmark codex uninstall
 | `PATHMARK_SNAPSHOT_CHARS` | `4000` | Character budget for generated snapshots; clamped to 500–12000. |
 | `PATHMARK_CODEX_RAW_RECALL_DAYS` | `30` | Prompt-time eligibility horizon for raw evidence. `0` disables automatic raw fallback without deleting or hiding explicit search results. |
 | `PATHMARK_CODEX_RAW_RECALL_LIMIT` | `2` | Maximum fresh raw records injected when no approved conclusion matches. Clamped to 0–2. |
+| `PATHMARK_CODEX_PROACTIVE_CONSOLIDATION` | `on` | At session start, nudge Codex to review a bounded evidence batch when scoped raw history is accumulating without conclusions. |
+| `PATHMARK_CONSOLIDATION_MIN_EVIDENCE` | `8` | Minimum unsynthesized user/assistant records before the proactive consolidation nudge appears. |
 | `PATHMARK_CONCLUSION_APPROVAL` | `on` | Stage new conclusions for explicit approval. Set `off` only for trusted legacy automation. |
 | `PATHMARK_SYNTHESIS_PROVIDER` | `client` | `client`, `command`, `codex`, or `openai-compatible`. |
 | `PATHMARK_CHAT_COMMAND` | unset | Command provider: receives a synthesized prompt on stdin and writes an answer on stdout. |
@@ -392,11 +408,14 @@ pathmark ingest --client=claude-code --namespace=my-project < transcript.json
 pathmark ingest --client=opencode --namespace=my-project < transcript.json
 ```
 
-## Store maintenance and portable sync
+## Memory chat, consolidation, maintenance, and portable sync
 
 Maintenance commands preview destructive changes unless `--apply` is present:
 
 ```bash
+pathmark chat "What did we decide about release signing?" --namespace=my-project
+pathmark consolidate --namespace=my-project
+PATHMARK_SYNTHESIS_PROVIDER=codex pathmark consolidate --namespace=my-project --apply
 pathmark audit --days=30
 pathmark audit --namespace=my-project --days=90
 pathmark doctor
@@ -405,6 +424,10 @@ pathmark compact --apply --retention-days=90
 pathmark purge --namespace=old-client
 pathmark purge --namespace=old-client --apply
 ```
+
+`pathmark chat` and the MCP `chat` / `ask_memory` tools search approved conclusions first, then fall back to explicitly requested raw evidence. In the default `client` synthesis mode, the MCP host agent answers from the returned context. Set `PATHMARK_SYNTHESIS_PROVIDER=codex`, `command`, or `openai-compatible` when the CLI itself should produce the answer.
+
+`pathmark consolidate` is preview-first. With default client synthesis it returns the bounded evidence and exact instructions for the host agent, which can call `create_conclusion` with supporting `evidenceIds`. With a configured server-side synthesis provider, it previews structured candidates; `--apply` stages them as pending conclusions for `approve_conclusion` or `reject_conclusion`. It never auto-approves extracted intent.
 
 Applied compaction and purge create a backup before replacing the canonical file. Soft deletion remains available through `delete_memory`; hard purge physically removes selected records from JSONL and rebuilds the derived index.
 
@@ -438,7 +461,7 @@ Pathmark stores newline-delimited JSON at:
 ~/.pathmark/memory/memory.jsonl
 ```
 
-`memory.jsonl` remains the canonical source of truth. Pathmark also maintains a derived, disposable search index at `memory.index.v4.sqlite`. Index filenames are schema-versioned so old and new MCP processes can coexist during a rolling restart. The index is rebuilt automatically when the JSONL file changes outside Pathmark, and inactive index versions can be deleted safely after their processes stop.
+`memory.jsonl` remains the canonical source of truth. Pathmark also maintains a derived, disposable search index at `memory.index.v5.sqlite`. Index filenames are schema-versioned so old and new MCP processes can coexist during a rolling restart. The index is rebuilt automatically when the JSONL file changes outside Pathmark, and inactive index versions can be deleted safely after their processes stop.
 
 Each record is inspectable:
 

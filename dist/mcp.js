@@ -2,9 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { auditMemory } from "./audit.js";
-import { synthesizeWithCommand } from "./chat.js";
+import { consolidateMemory } from "./consolidate.js";
 import { loadConfig } from "./config.js";
 import { jsonText, publicConfig, summarizeRecords, summarizeSearch, usedMemories } from "./format.js";
+import { answerMemory } from "./memory-query.js";
 import { redactSecrets } from "./redact.js";
 import { selectRelevantResults } from "./relevance.js";
 import { namespaceTag, PathmarkStore } from "./store.js";
@@ -16,7 +17,7 @@ export async function runMcpServer() {
     const store = new PathmarkStore(config);
     const server = new McpServer({
         name: "pathmark",
-        version: "0.1.10",
+        version: "0.1.11",
     });
     server.registerTool("get_config", {
         title: "Get Pathmark configuration",
@@ -52,13 +53,20 @@ export async function runMcpServer() {
             source: z.string().optional(),
             namespace: z.string().min(1).optional(),
             expiresAt: z.string().optional(),
+            evidenceIds: z
+                .array(z.string().min(1))
+                .max(100)
+                .optional()
+                .describe("Raw memory IDs supporting this conclusion. Used for provenance and consolidation coverage."),
         },
-    }, async ({ text, tags, source, namespace, expiresAt }) => {
+    }, async ({ text, tags, source, namespace, expiresAt, evidenceIds }) => {
+        const conclusionTags = scopedTags(tags, namespace ?? config.defaultNamespace);
         const input = {
             text: safeWriteText(text, config.redactMcpWrites),
-            tags: scopedTags(tags, namespace ?? config.defaultNamespace),
+            tags: conclusionTags,
             source,
             expiresAt,
+            evidenceIds: await validatedEvidenceIds(store, evidenceIds, conclusionTags),
         };
         if (config.conclusionApprovalRequired) {
             const { record, created } = await store.proposeConclusion(input, { dedupe: true });
@@ -333,6 +341,25 @@ export async function runMcpServer() {
             confirm: z.boolean().default(false).describe("False previews the purge; true applies it and creates a backup."),
         },
     }, async ({ id, tags, namespace, source, before, confirm }) => jsonText(await store.purge({ id, tags, namespace, source, before, dryRun: !confirm })));
+    server.registerTool("consolidate_memory", {
+        title: "Consolidate raw evidence",
+        description: "Prepare a bounded unsynthesized evidence batch and, when server synthesis is configured, preview or stage evidence-backed conclusion proposals. Proposals are never auto-approved.",
+        inputSchema: {
+            days: z.number().int().min(0).max(3_650).optional(),
+            evidenceLimit: z.number().int().min(1).max(100).optional(),
+            maxProposals: z.number().int().min(1).max(10).optional(),
+            tags: z.array(z.string()).optional(),
+            namespace: z.string().min(1).optional(),
+            apply: z.boolean().default(false).describe("Stage generated proposals as pending conclusions."),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    }, async ({ days, evidenceLimit, maxProposals, tags, namespace, apply }) => jsonText(await consolidateMemory(store, config, {
+        days,
+        evidenceLimit,
+        maxProposals,
+        tags: scopedTags(tags, namespace ?? config.defaultNamespace),
+        apply,
+    })));
     server.registerTool("audit_memory", {
         title: "Audit memory value",
         description: "Measure capture-to-recall behavior, unused records, recall age, duplicate rate, stale raw hits, and available precision evidence without changing memory.",
@@ -382,7 +409,7 @@ export async function runMcpServer() {
     }, async ({ destination, tags, namespace, kind, includeDeleted, encrypted }) => jsonText(await store.exportTo(destination, { tags, namespace, kind, includeDeleted, encrypted })));
     server.registerTool("ask_memory", {
         title: "Ask memory",
-        description: "Retrieve relevant context and optionally synthesize an answer through PATHMARK_CHAT_COMMAND. Without a command, returns context for the MCP client to synthesize.",
+        description: "Ask approved conclusions first, then explicit raw evidence fallback. Optionally synthesize server-side; otherwise return context for the MCP host agent.",
         inputSchema: {
             question: z.string().min(1),
             limit: z.number().int().min(1).max(30).optional(),
@@ -393,7 +420,7 @@ export async function runMcpServer() {
     }, async ({ question, limit, tags, namespace, kind }) => answerFromMemory(question, limit, tags, namespace, kind));
     server.registerTool("chat", {
         title: "Chat",
-        description: "Ask Pathmark memory a question. Returns the exact retrieved context so the MCP client can show what memory was used.",
+        description: "Chat with Pathmark using approved conclusions first and raw evidence only as fallback. Returns exact used-memory provenance.",
         inputSchema: {
             question: z.string().min(1),
             limit: z.number().int().min(1).max(30).optional(),
@@ -405,15 +432,11 @@ export async function runMcpServer() {
     await store.ensureReady();
     await server.connect(new StdioServerTransport());
     async function answerFromMemory(question, limit, tags, namespace, kind) {
-        const results = await relevantSearch(question, limit, scopedTags(tags, namespace ?? config.defaultNamespace), kind);
-        const answer = await synthesizeWithCommand({ config, question, context: results });
-        return jsonText({
-            answer: answer ?? null,
-            synthesis: answer ? "server_command" : "client_should_synthesize",
-            context: summarizeSearch(results),
-            usedMemories: usedMemories(results),
-            records: results.map((result) => result.record),
-        });
+        return jsonText(await answerMemory(store, config, question, {
+            limit,
+            tags: scopedTags(tags, namespace ?? config.defaultNamespace),
+            kind,
+        }));
     }
     async function relevantSearch(query, limit, tags, kind) {
         const selectedLimit = limit ?? config.maxSearchResults;
@@ -428,5 +451,20 @@ function scopedTags(tags, namespace) {
 }
 function safeWriteText(text, redact) {
     return redact ? redactSecrets(text).text : text;
+}
+async function validatedEvidenceIds(store, ids, conclusionTags) {
+    if (!ids)
+        return undefined;
+    const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+    const scopeTags = conclusionTags.filter((tag) => ["namespace:", "workspace:", "project:", "session:"].some((prefix) => tag.startsWith(prefix)));
+    for (const id of unique) {
+        const evidence = await store.get(id);
+        if (!evidence || evidence.kind !== "memory")
+            throw new Error(`Evidence record not found: ${id}`);
+        if (scopeTags.length > 0 && !scopeTags.every((tag) => evidence.tags.includes(tag))) {
+            throw new Error(`Evidence record ${id} is outside the conclusion scope`);
+        }
+    }
+    return unique;
 }
 //# sourceMappingURL=mcp.js.map

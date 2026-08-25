@@ -3,7 +3,7 @@
   "@type": "SoftwareSourceCode",
   "name": "Pathmark",
   "description": "Local-first intent, evidence, and provenance for Codex, Claude Code, opencode, Gemini CLI, Cursor, and MCP-capable coding agents.",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "dateCreated": "2026-06-29",
   "datePublished": "2026-07-29",
   "dateModified": "2026-07-29",
