@@ -179,8 +179,14 @@ function parseTranscriptEventInternal(
 
 export function normalizeCodexUserMessage(text: string): string {
   const trimmed = text.trim();
+  if (startsWithTag(trimmed, "realtime_delegation")) return unwrapRealtimeDelegation(trimmed);
   if (!trimmed || isInjectedContext(trimmed)) return "";
   return unwrapCodexUserTransport(trimmed);
+}
+
+function unwrapRealtimeDelegation(text: string): string {
+  const match = text.match(/<input(?:\s[^>]*)?>([\s\S]*?)<\/input>/i);
+  return match?.[1]?.trim() ?? "";
 }
 
 function unwrapCodexUserTransport(text: string): string {

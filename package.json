@@ -1,7 +1,8 @@
 {
   "name": "pathmark",
-  "version": "0.1.9",
-  "description": "One local memory layer for Codex, Claude Code, opencode, Cursor, Gemini CLI, and MCP-capable coding agents.",
+  "version": "0.1.11",
+  "mcpName": "io.github.hacksurvivor/pathmark",
+  "description": "Local-first intent, evidence, and provenance for Codex, Claude Code, Cursor, Gemini CLI, and MCP agents.",
   "type": "module",
   "bin": {
     "pathmark": "dist/index.js"
@@ -9,8 +10,10 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "CITATION.cff",
     "codemeta.json",
+    "server.json",
     "SECURITY.md",
     "LICENSE",
     "examples",
@@ -23,7 +26,7 @@
     "canary:installed": "node scripts/canary-installed.mjs",
     "demo:build-week": "node scripts/build-week-demo.mjs",
     "test": "npm run build && npm run test:runtime && npm run lint",
-    "test:runtime": "node scripts/smoke.mjs && node scripts/test-setup.mjs && node scripts/test-portable-hooks.mjs && node scripts/test-manage.mjs && node scripts/test-relevance.mjs && node scripts/test-codex-adapter.mjs && node scripts/test-hardening.mjs && node scripts/test-chat.mjs",
+    "test:runtime": "node scripts/smoke.mjs && node scripts/test-setup.mjs && node scripts/test-portable-hooks.mjs && node scripts/test-manage.mjs && node scripts/test-audit.mjs && node scripts/test-consolidate.mjs && node scripts/test-relevance.mjs && node scripts/test-memory-quality.mjs && node scripts/test-codex-adapter.mjs && node scripts/test-hardening.mjs && node scripts/test-chat.mjs && node scripts/test-recall-payload-budget.mjs",
     "test:setup": "npm run build && node scripts/test-setup.mjs",
     "test:codex-adapter": "npm run build && node scripts/test-codex-adapter.mjs",
     "test:hardening": "npm run build && node scripts/test-hardening.mjs",

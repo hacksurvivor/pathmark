@@ -27,6 +27,21 @@ assert.equal(
 const codeMeta = JSON.parse(await readFile("codemeta.json", "utf8"));
 assert.equal(codeMeta.version, packageJson.version, "codemeta.json version must match package.json");
 
+const serverJson = JSON.parse(await readFile("server.json", "utf8"));
+assert.equal(
+  serverJson.$schema,
+  "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "server.json must use the current MCP Registry schema",
+);
+assert.equal(packageJson.mcpName, serverJson.name, "package.json mcpName must match server.json name");
+assert.equal(serverJson.version, packageJson.version, "server.json version must match package.json");
+assert.equal(serverJson.packages?.length, 1, "server.json must contain exactly one package");
+assert.equal(serverJson.packages[0].registryType, "npm", "server.json package must use the npm registry");
+assert.equal(serverJson.packages[0].identifier, packageJson.name, "server.json package name must match package.json");
+assert.equal(serverJson.packages[0].version, packageJson.version, "server.json package version must match package.json");
+assert.equal(serverJson.packages[0].transport?.type, "stdio", "server.json package must use stdio transport");
+assert.equal(packageJson.files.includes("server.json"), true, "server.json must be included in the npm tarball");
+
 const releaseNotes = path.join("docs", "releases", `${expectedTag}.md`);
 const notes = await readFile(releaseNotes, "utf8");
 assert.equal(notes.includes(`# Pathmark ${expectedTag}`), true, `Release notes must start with # Pathmark ${expectedTag}`);

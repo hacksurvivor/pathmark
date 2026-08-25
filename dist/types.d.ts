@@ -1,4 +1,12 @@
 export type PathmarkRecordKind = "memory" | "conclusion";
+export type PathmarkApprovalStatus = "pending" | "approved" | "rejected";
+export interface PathmarkApproval {
+    status: PathmarkApprovalStatus;
+    proposedAt: string;
+    decidedAt?: string;
+    decidedBy?: string;
+    note?: string;
+}
 export interface PathmarkRecordVersion {
     text: string;
     tags: string[];
@@ -43,6 +51,8 @@ export interface PathmarkRecord {
     occurrences?: number;
     history?: PathmarkRecordVersion[];
     activity?: PathmarkActivity;
+    approval?: PathmarkApproval;
+    evidenceIds?: string[];
 }
 export interface PathmarkRecordDraft {
     id?: string;
@@ -55,6 +65,8 @@ export interface PathmarkRecordDraft {
     expiresAt?: string;
     supersedes?: string;
     activity?: PathmarkActivity;
+    approval?: PathmarkApproval;
+    evidenceIds?: string[];
 }
 export interface PathmarkConfig {
     storeDir: string;
@@ -71,6 +83,13 @@ export interface PathmarkConfig {
     codexProactiveRecall: boolean;
     codexVisibleRecall: boolean;
     codexCaptureToolOutputs: boolean;
+    codexMemorySnapshot: boolean;
+    snapshotCharLimit: number;
+    codexRawRecallDays: number;
+    codexRawRecallLimit: number;
+    codexProactiveConsolidation: boolean;
+    consolidationMinEvidence: number;
+    conclusionApprovalRequired: boolean;
     defaultNamespace?: string;
     redactMcpWrites: boolean;
     retentionDays: number;
@@ -94,6 +113,9 @@ export interface StoreDiagnosis {
     expiredRecords: number;
     exactDuplicateRecords: number;
     conclusions: number;
+    pendingConclusions: number;
+    approvedConclusions: number;
+    rejectedConclusions: number;
     invalidRecordCount: number;
     indexFile: string;
 }

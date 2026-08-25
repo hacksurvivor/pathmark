@@ -1,18 +1,34 @@
 # Pathmark
 
-Stop re-explaining your repo each time you switch agents.
+Carry intent across agents without turning stale code facts into hidden memory.
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/pathmark"><img src="https://img.shields.io/npm/v/pathmark?label=version" alt="current Pathmark npm version"></a>
   <a href="https://www.npmjs.com/package/pathmark"><img src="https://img.shields.io/npm/dt/pathmark?label=npm%20downloads" alt="npm downloads"></a>
   <a href="https://www.npmjs.com/package/pathmark"><img src="https://img.shields.io/npm/dw/pathmark?label=weekly%20downloads" alt="weekly npm downloads"></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/hacksurvivor/pathmark"><img src="https://api.scorecard.dev/projects/github.com/hacksurvivor/pathmark/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
+## What's New — v0.1.11
+
+Pathmark v0.1.11 turns captured history into proactively useful, auditable intent:
+
+- approved conclusions are recalled before raw session evidence;
+- `consolidate_memory` and `pathmark consolidate` turn bounded raw evidence batches into evidence-backed, approval-gated conclusion proposals;
+- Codex receives a proactive consolidation nudge when scoped evidence is piling up unsynthesized;
+- `chat` / `ask_memory` are conclusion-first, and `pathmark chat "question"` makes the same workflow available from the CLI;
+- `pathmark audit` measures recall, stale hits, duplicates, and raw-evidence-to-conclusion coverage without pretending unlabeled retrieval has a precision score;
+- signed release metadata and a controlled GitHub OIDC workflow make the package ready for the official MCP Registry.
+
+See the [v0.1.11 release notes](docs/releases/v0.1.11.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
+
 <p align="center">
-  <img src="https://raw.githubusercontent.com/hacksurvivor/pathmark/main/assets/pathmark-hero.png" alt="Pathmark local memory layer shared by Codex, Claude Code, opencode, and Gemini CLI" width="100%">
+  <img src="https://raw.githubusercontent.com/hacksurvivor/pathmark/main/assets/pathmark-hero.png" alt="Pathmark local intent and provenance shared by Codex, Claude Code, opencode, and Gemini CLI" width="100%">
 </p>
 
-Pathmark gives Codex, Claude Code, opencode, Gemini CLI, Cursor, and any MCP-capable harness one local memory layer. Save decisions, project rules, preferences, and conclusions once. Use them from the next agent without pasting a recap.
+Pathmark gives Codex, Claude Code, opencode, Gemini CLI, Cursor, and any MCP-capable harness one local intent and provenance layer. Save decisions, constraints, preferences, and approved conclusions once. Use them from the next agent without pasting a recap.
+
+**Code remembers implementation. Pathmark remembers intent.** Repository code, architecture, tests, CI, and intentional agent instructions remain authoritative for how the software works. Raw sessions are searchable evidence, not automatically trusted truth.
 
 Your context stays on disk at `~/.pathmark/memory/memory.jsonl`. You do not need an account, hosted database, API key, or vendor backend to start.
 
@@ -36,10 +52,10 @@ See the [Build Week implementation record](docs/build-week-2026.md) for the befo
 
 You do not work in one tool. You ask Codex to patch, Claude Code to review, opencode to clean up, and Gemini CLI to challenge the plan. Each tool starts cold unless you carry the context across.
 
-Pathmark gives those tools one place to read and write memory:
+Pathmark gives those tools one place to read and write intent and evidence:
 
 - One local JSONL store across harnesses.
-- Standard MCP tools: `remember`, `search_memory`, `recall_memory`, `session_trace`, `get_context`, and `ask_memory`.
+- Standard MCP tools include `remember`, `search_memory`, `recall_memory`, `session_trace`, `consolidate_memory`, `audit_memory`, and conclusion-first `chat` / `ask_memory`.
 - Client-side synthesis by default, so your coding agent reads the context and answers.
 - Optional Codex CLI, local command, and OpenAI-compatible synthesis modes.
 - Plain files you can inspect, back up, delete, or migrate.
@@ -69,9 +85,9 @@ Gemini CLI  /
 Cursor     /
 ```
 
-Install Pathmark in each harness and point them at the same `PATHMARK_STORE_DIR`. One tool saves context with `remember` or `create_conclusion`; the next tool recovers it with `recall_memory`, `search_memory`, `get_context`, or `ask_memory`.
+Install Pathmark in each harness and point them at the same `PATHMARK_STORE_DIR`. One tool saves raw context with `remember` or proposes a durable conclusion with `create_conclusion`; an approved conclusion and raw evidence can then be recovered with `recall_memory`, `search_memory`, `get_context`, or `ask_memory`.
 
-Pathmark sits below the agents as a memory bus for your coding workflow.
+Pathmark sits below the agents as an intent, evidence, and provenance bus for your coding workflow.
 
 ## Tools
 
@@ -79,17 +95,23 @@ Pathmark exposes these MCP tools:
 
 | Tool | Purpose |
 | --- | --- |
-| `remember` | Save a raw memory item. |
-| `create_conclusion` | Save a higher-signal durable conclusion or preference. |
+| `remember` | Save raw searchable evidence. Raw evidence is not treated as durable approved intent. |
+| `create_conclusion` | Propose a higher-signal durable conclusion or preference. Approval is required by default before recall. |
 | `search_memory` | Search memories and conclusions. |
 | `recall_memory` | Transparent recall: returns context plus the exact memory IDs, timestamps, sources, matches, tags, and previews used. Accepts optional `tags`, exact `ids`, and compact `includeRecords: false` output. |
 | `session_trace` | Return a bounded chronological audit trail for one session: prompts, exact injected memory IDs, redacted tool inputs/results, and answers. |
 | `get_context` | Return compact context for a task or question. |
-| `list_conclusions` | List saved conclusions. |
+| `list_conclusions` | List approved saved conclusions. |
+| `list_pending_conclusions` | Review bounded, paginated pending conclusion proposals. |
+| `approve_conclusion` | Atomically approve a proposal, optionally correcting text/tags and recording the reviewer. |
+| `reject_conclusion` | Retain a rejected proposal in the audit trail while permanently excluding it from recall. |
+| `get_memory_snapshot` | Generate a bounded USER/PROJECT/AGENT snapshot from approved canonical conclusions. |
+| `consolidate_memory` | Review a bounded unsynthesized evidence batch and optionally stage evidence-backed proposals. Nothing is auto-approved. |
 | `delete_memory` | Soft-delete a memory or conclusion by id. |
 | `update_memory` | Correct a record while preserving prior versions. |
 | `supersede_memory` | Replace an outdated record with a linked current record. |
 | `purge_memory` | Preview or apply permanent deletion by id, namespace, tags, source, or date. |
+| `audit_memory` | Measure capture-to-recall behavior, unused records, recall age, duplicates, stale raw hits, and whether precision labels exist. |
 | `doctor_memory` | Report duplicates, deleted/expired records, conclusions, and index health. |
 | `compact_memory` | Preview or apply deduplication, retention, and physical cleanup with an automatic backup. |
 | `backup_memory` | Create a point-in-time canonical JSONL backup. |
@@ -136,7 +158,7 @@ Codex users can also enable auto-capture:
 pathmark codex install --replace-legacy-hooks
 ```
 
-When you want the visible "what memory did you use?" entry in Codex, Claude Code, Cursor, opencode, Gemini CLI, Grok-compatible MCP hosts, or any other MCP harness, call the `recall_memory` tool before answering. Codex auto-capture also recalls relevant memory automatically at session start and before non-trivial prompts, but `recall_memory` is the portable visible trace across harnesses.
+When you want the visible "what memory did you use?" entry in Codex, Claude Code, Cursor, opencode, Gemini CLI, Grok-compatible MCP hosts, or any other MCP harness, call the `recall_memory` tool before answering. Codex session start injects an approved conclusion snapshot. Before non-trivial prompts, Codex recalls approved conclusions first and uses fresh scoped raw evidence only as a bounded fallback. `recall_memory` remains the portable visible trace across harnesses.
 
 ### Claude Code
 
@@ -238,12 +260,21 @@ The Codex adapter is proactive by default:
 - tool activity records include bounded redacted input previews and hashes, status, exit code, duration, and changed files when the hook provides them;
 - tool-output hashes are captured for correlation, while output text remains private by default and requires `PATHMARK_CODEX_CAPTURE_TOOL_OUTPUTS=on`;
 - activity records expire after 30 days and are physically capped at 5,000 records by default;
-- session start/resume injects relevant workspace memory;
-- each non-trivial user prompt searches the local store and injects matching memory as Codex `additionalContext`;
+- session start/resume generates one bounded USER/PROJECT/AGENT snapshot from approved canonical conclusions and does not inject raw session history;
+- each non-trivial user prompt searches approved workspace/project conclusions first, then approved global or explicitly named-project conclusions;
+- only when no approved conclusion matches, at most two raw records from the current workspace/project/session may be injected as a high-confidence fallback;
+- raw fallback records must be within the separate automatic-recall horizon, 30 days by default; the full raw archive remains available to explicit `search_memory` and `recall_memory` calls;
+- raw cross-project history is never injected automatically; promote durable cross-project intent through the approval workflow;
+- broad cross-project history remains available through explicit `search_memory` / `recall_memory` calls without silently entering every prompt;
 - when matching memory is found, Codex receives an instruction to call `recall_memory` with the exact pre-capture result IDs and workspace tag, so the UI cannot mistake the newly saved prompt for previously used memory;
 - prompt context applies relevance and near-duplicate filtering before injection, and automatic visible recall omits the redundant full `records` copy;
-- legacy transport envelopes and assistant progress updates are excluded from session-start and proactive relevance results, while remaining available to explicit raw search;
+- legacy transport envelopes and assistant progress updates are excluded from session-start and proactive relevance results, while realtime delegation envelopes retain only their current `<input>` payload;
+- records containing Pathmark boundary escapes, instruction-override patterns, or invisible Unicode controls are tagged `memory-quarantined` and excluded from automatic recall; injected previews are escaped and explicitly treated as untrusted historical data;
 - no matching memory means no extra context is injected.
+
+Durable extraction is approval-gated by default. `create_conclusion` creates a pending proposal; pending and rejected conclusions stay in the canonical JSONL audit trail but are structurally excluded from normal search, exact-ID recall, prompt injection, and snapshots. Use `list_pending_conclusions`, then `approve_conclusion` or `reject_conclusion`. Conclusions created before this workflow are treated as already approved for backward compatibility. Raw `remember` records remain searchable evidence and are not promoted automatically.
+
+The session snapshot is generated from the same canonical store rather than maintained as a second flat file. It is frozen in the session-start hook output; prompt-time scoped recall remains dynamic.
 
 Set `PATHMARK_CODEX_PROACTIVE_RECALL=off` if you want Codex hooks to capture memory but stop prompt-time recall.
 Set `PATHMARK_CODEX_VISIBLE_RECALL=off` if you want prompt-time recall without the visible `recall_memory` tool-call request.
@@ -275,6 +306,13 @@ pathmark codex uninstall
 | `PATHMARK_CODEX_PROACTIVE_RECALL` | `on` | Automatically inject relevant Pathmark context before non-trivial Codex prompts. Use `off` to capture without prompt-time recall. |
 | `PATHMARK_CODEX_VISIBLE_RECALL` | `on` | Ask Codex to call `recall_memory` when prompt-time recall found context, so the UI shows the exact `usedMemories`. |
 | `PATHMARK_CODEX_CAPTURE_TOOL_OUTPUTS` | `off` | Store bounded redacted tool-output previews. Output hashes, status, duration, and exit codes remain available when this is off. |
+| `PATHMARK_CODEX_MEMORY_SNAPSHOT` | `on` | Generate a bounded approved-conclusion snapshot at Codex session start/resume. |
+| `PATHMARK_SNAPSHOT_CHARS` | `4000` | Character budget for generated snapshots; clamped to 500–12000. |
+| `PATHMARK_CODEX_RAW_RECALL_DAYS` | `30` | Prompt-time eligibility horizon for raw evidence. `0` disables automatic raw fallback without deleting or hiding explicit search results. |
+| `PATHMARK_CODEX_RAW_RECALL_LIMIT` | `2` | Maximum fresh raw records injected when no approved conclusion matches. Clamped to 0–2. |
+| `PATHMARK_CODEX_PROACTIVE_CONSOLIDATION` | `on` | At session start, nudge Codex to review a bounded evidence batch when scoped raw history is accumulating without conclusions. |
+| `PATHMARK_CONSOLIDATION_MIN_EVIDENCE` | `8` | Minimum unsynthesized user/assistant records before the proactive consolidation nudge appears. |
+| `PATHMARK_CONCLUSION_APPROVAL` | `on` | Stage new conclusions for explicit approval. Set `off` only for trusted legacy automation. |
 | `PATHMARK_SYNTHESIS_PROVIDER` | `client` | `client`, `command`, `codex`, or `openai-compatible`. |
 | `PATHMARK_CHAT_COMMAND` | unset | Command provider: receives a synthesized prompt on stdin and writes an answer on stdout. |
 | `PATHMARK_CODEX_COMMAND` | `codex` | Codex provider command. |
@@ -288,7 +326,7 @@ pathmark codex uninstall
 | `PATHMARK_RETENTION_DAYS` | `0` | Retention policy used by compaction; `0` disables age-based removal. Conclusions are retained. |
 | `PATHMARK_ACTIVITY_RETENTION_DAYS` | `30` | Automatic lifetime for recall/tool activity records; `0` disables age-based activity expiry. |
 | `PATHMARK_ACTIVITY_MAX_RECORDS` | `5000` | Physical cap for activity records; oldest activity is removed automatically. `0` disables the count cap. |
-| `PATHMARK_RERANK_COMMAND` | unset | Optional local hybrid reranker. Receives query/candidates as JSON on stdin and returns ranked memory ids. |
+| `PATHMARK_RERANK_COMMAND` | unset | Optional trusted local embedding/vector or hybrid reranker. Strict kind/tag/namespace filters are applied before candidates leave the store; the command receives query/candidates as JSON on stdin and returns ranked memory ids. |
 | `PATHMARK_HYBRID_CANDIDATES` | `500` | Maximum candidates sent to the optional reranker. |
 | `PATHMARK_RETRIEVAL_TIMEOUT_MS` | `30000` | Timeout for the optional reranker. |
 | `PATHMARK_EXPORT_KEY` | unset | Passphrase for AES-256-GCM portable exports/imports. Never returned by `get_config`. |
@@ -371,11 +409,16 @@ pathmark ingest --client=claude-code --namespace=my-project < transcript.json
 pathmark ingest --client=opencode --namespace=my-project < transcript.json
 ```
 
-## Store maintenance and portable sync
+## Memory chat, consolidation, maintenance, and portable sync
 
 Maintenance commands preview destructive changes unless `--apply` is present:
 
 ```bash
+pathmark chat "What did we decide about release signing?" --namespace=my-project
+pathmark consolidate --namespace=my-project
+PATHMARK_SYNTHESIS_PROVIDER=codex pathmark consolidate --namespace=my-project --apply
+pathmark audit --days=30
+pathmark audit --namespace=my-project --days=90
 pathmark doctor
 pathmark compact
 pathmark compact --apply --retention-days=90
@@ -383,7 +426,13 @@ pathmark purge --namespace=old-client
 pathmark purge --namespace=old-client --apply
 ```
 
+`pathmark chat` and the MCP `chat` / `ask_memory` tools search approved conclusions first, then fall back to explicitly requested raw evidence. In the default `client` synthesis mode, the MCP host agent answers from the returned context. Set `PATHMARK_SYNTHESIS_PROVIDER=codex`, `command`, or `openai-compatible` when the CLI itself should produce the answer.
+
+`pathmark consolidate` is preview-first. With default client synthesis it returns the bounded evidence and exact instructions for the host agent, which can call `create_conclusion` with supporting `evidenceIds`. With a configured server-side synthesis provider, it previews structured candidates; `--apply` stages them as pending conclusions for `approve_conclusion` or `reject_conclusion`. It never auto-approves extracted intent.
+
 Applied compaction and purge create a backup before replacing the canonical file. Soft deletion remains available through `delete_memory`; hard purge physically removes selected records from JSONL and rebuilds the derived index.
+
+`pathmark audit` is read-only. It reports inventory, capture-to-recall ratio, records not recalled within the selected activity window, recall age, exact duplicates, stale raw hits, and scope/missing-reference signals. Pathmark does not claim retrieval precision without relevance labels; the audit returns `precision.status: "unlabeled"` until a trustworthy feedback path exists.
 
 Use scoped exports and merge imports as the transport-neutral sync layer:
 
@@ -413,7 +462,7 @@ Pathmark stores newline-delimited JSON at:
 ~/.pathmark/memory/memory.jsonl
 ```
 
-`memory.jsonl` remains the canonical source of truth. Pathmark also maintains a derived, disposable search index at `memory.index.v4.sqlite`. Index filenames are schema-versioned so old and new MCP processes can coexist during a rolling restart. The index is rebuilt automatically when the JSONL file changes outside Pathmark, and inactive index versions can be deleted safely after their processes stop.
+`memory.jsonl` remains the canonical source of truth. Pathmark also maintains a derived, disposable search index at `memory.index.v5.sqlite`. Index filenames are schema-versioned so old and new MCP processes can coexist during a rolling restart. The index is rebuilt automatically when the JSONL file changes outside Pathmark, and inactive index versions can be deleted safely after their processes stop.
 
 Each record is inspectable:
 
@@ -429,7 +478,7 @@ Each record is inspectable:
 }
 ```
 
-Deletes are soft deletes by default: the record gets a `deletedAt` timestamp. Use preview-first `purge_memory` or `pathmark purge --apply` for physical erasure. Updates preserve up to 50 prior versions, superseded records link to their replacement, and expired records are excluded from recall.
+Deletes are soft deletes by default: the record gets a `deletedAt` timestamp. Use preview-first `purge_memory` or `pathmark purge --apply` for physical erasure. Updates preserve up to 50 prior versions, superseded records link to their replacement, and expired records are excluded from recall. The raw automatic-recall horizon is separate from storage retention: evidence can age out of proactive injection while remaining explicitly searchable.
 
 Malformed JSONL lines are skipped rather than crashing every tool. `pathmark codex status` reports their count as `invalidRecordCount` so the source file can be repaired deliberately.
 
@@ -451,7 +500,7 @@ Pathmark gives your agents a shared working memory that stays on your machine.
 
 ## Author and citation
 
-Pathmark is created and maintained by [Sergey Moloman](https://rflxai.com/founder/sergey-moloman), an independent B2B AI integration contractor and founder of [RFLX AI](https://rflxai.com/).
+Pathmark is created and maintained by [Sergey Moloman](https://rflxai.com/founder/sergey-moloman), a B2B AI integration specialist and private AI contractor, and founder of [RFLX AI](https://rflxai.com/).
 
 Machine-readable authorship and citation metadata are available in [`CITATION.cff`](CITATION.cff) and [`codemeta.json`](codemeta.json).
 

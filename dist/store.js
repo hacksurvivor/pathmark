@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { appendFile, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "./memory-safety.js";
+import { APPROVAL_PENDING_TAG, APPROVAL_REJECTED_TAG, APPROVAL_STATE_TAGS, conclusionApprovalStatus, isRecallableRecord, withApprovalTag, } from "./approval.js";
 import { tokenizeSearchText } from "./tokenize.js";
 import { rerankWithCommand } from "./retrieval.js";
 import { encryptPortableExport } from "./portable.js";
@@ -13,18 +15,49 @@ const DEFAULT_NO_OWNER_STALE_LOCK_MS = 5000;
 const LOCK_OWNER_FILE = "owner.json";
 const WRITE_LOCK_DIR = ".memory.lock";
 const INDEX_LOCK_DIR = ".memory.index.lock";
-const INDEX_SCHEMA_VERSION = "4";
+const INDEX_SCHEMA_VERSION = "5";
 const INDEX_FILE = `memory.index.v${INDEX_SCHEMA_VERSION}.sqlite`;
 const SEARCH_CANDIDATE_LIMIT = 2000;
 const ACTIVITY_TAG = "pathmark-activity";
 const ACTIVITY_PRUNE_INTERVAL_MS = 60 * 60 * 1_000;
 const ACTIVITY_PRUNED_AT_KEY = "activity_pruned_at_ms";
+// Short-lived hook processes (`pathmark codex observe`, etc.) each open an index
+// connection. Nothing closed them, so they lingered holding a read snapshot and
+// SQLite could never checkpoint the WAL. Tracking open stores lets the CLI drain
+// and close them before exiting.
+const openStores = new Set();
+export async function closeOpenStores() {
+    await Promise.all([...openStores].map((store) => store.close()));
+}
 export class PathmarkStore {
     config;
     db;
     syncPromise;
     constructor(config) {
         this.config = config;
+        openStores.add(this);
+    }
+    // Checkpoint on the way out so the WAL is folded back into the db file rather
+    // than growing across process generations. Best effort: a busy checkpoint must
+    // never fail the command that happens to be closing the store.
+    async close() {
+        openStores.delete(this);
+        const db = this.db;
+        if (!db)
+            return;
+        this.db = undefined;
+        try {
+            db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+        }
+        catch {
+            // another connection holds a snapshot; the next close will get it
+        }
+        try {
+            db.close();
+        }
+        catch {
+            // already closed
+        }
     }
     async ensureReady() {
         await mkdir(this.config.storeDir, { recursive: true });
@@ -54,8 +87,8 @@ export class PathmarkStore {
                 await copyFile(this.config.memoryFile, options.backupFile);
             }
             const findRecord = db.prepare("SELECT * FROM records WHERE id = ?");
-            const findDuplicate = options.dedupe
-                ? db.prepare("SELECT * FROM records WHERE content_hash = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1")
+            const findDuplicates = options.dedupe
+                ? db.prepare("SELECT * FROM records WHERE content_hash = ? AND deleted_at IS NULL ORDER BY updated_at DESC")
                 : undefined;
             const results = [];
             const createdRecords = [];
@@ -73,31 +106,42 @@ export class PathmarkStore {
                     results.push({ record: rowToRecord(existing), created: false });
                     continue;
                 }
+                const approval = input.kind === "conclusion" ? input.approval : undefined;
+                const baseTags = normalizeTags([
+                    ...(input.tags ?? []),
+                    ...(isUnsafeMemoryText(normalizedText) ? [QUARANTINED_MEMORY_TAG] : []),
+                ]);
                 const record = {
                     id,
                     kind: input.kind,
                     text: normalizedText,
-                    tags: normalizeTags(input.tags ?? []),
+                    tags: approval ? normalizeTags(withApprovalTag(baseTags, approval.status)) : baseTags,
                     source: input.source?.trim() || "mcp",
                     createdAt: input.createdAt ?? now,
                     updatedAt: input.updatedAt ?? input.createdAt ?? now,
                     ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
                     ...(input.supersedes ? { supersedes: input.supersedes } : {}),
                     ...(input.activity ? { activity: input.activity } : {}),
+                    ...(approval ? { approval } : {}),
+                    ...(input.kind === "conclusion" && input.evidenceIds
+                        ? { evidenceIds: normalizeEvidenceIds(input.evidenceIds) }
+                        : {}),
                 };
-                if (findDuplicate) {
+                if (findDuplicates) {
                     const hash = contentHash(record);
-                    const pendingDuplicate = pendingHashes.get(hash);
+                    const pendingDuplicate = pendingHashes.get(hash)?.find((candidate) => canDedupeRecord(record, candidate));
                     if (pendingDuplicate) {
                         results.push({ record: pendingDuplicate, created: false });
                         continue;
                     }
-                    const duplicate = findDuplicate.get(hash);
+                    const duplicate = findDuplicates.all(hash)
+                        .map(rowToRecord)
+                        .find((candidate) => canDedupeRecord(record, candidate));
                     if (duplicate) {
-                        results.push({ record: rowToRecord(duplicate), created: false });
+                        results.push({ record: duplicate, created: false });
                         continue;
                     }
-                    pendingHashes.set(hash, record);
+                    pendingHashes.set(hash, [...(pendingHashes.get(hash) ?? []), record]);
                 }
                 pending.set(id, record);
                 createdRecords.push(record);
@@ -127,6 +171,104 @@ export class PathmarkStore {
         const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "";
         const rows = db.prepare(`SELECT * FROM records${where} ORDER BY created_at DESC`).all(...parameters);
         return rows.map(rowToRecord);
+    }
+    async listConclusions(input = {}) {
+        const db = await this.database();
+        const status = input.status ?? "approved";
+        const tagFilter = normalizeTags(input.tags ?? []);
+        const clauses = ["kind = 'conclusion'", "deleted_at IS NULL", "(expires_at IS NULL OR expires_at > ?)"];
+        const parameters = [new Date().toISOString()];
+        if (status === "pending") {
+            clauses.push("instr(tags_key, ?) > 0");
+            parameters.push(`\u001f${APPROVAL_PENDING_TAG}\u001f`);
+        }
+        else if (status === "rejected") {
+            clauses.push("instr(tags_key, ?) > 0");
+            parameters.push(`\u001f${APPROVAL_REJECTED_TAG}\u001f`);
+        }
+        else {
+            clauses.push("instr(tags_key, ?) = 0", "instr(tags_key, ?) = 0");
+            parameters.push(`\u001f${APPROVAL_PENDING_TAG}\u001f`, `\u001f${APPROVAL_REJECTED_TAG}\u001f`);
+        }
+        for (const tag of tagFilter) {
+            clauses.push("instr(tags_key, ?) > 0");
+            parameters.push(`\u001f${tag}\u001f`);
+        }
+        const limit = Math.max(1, Math.min(input.limit ?? 50, 501));
+        const offset = Math.max(0, Math.min(input.offset ?? 0, 1_000_000));
+        const rows = db
+            .prepare(`SELECT * FROM records WHERE ${clauses.join(" AND ")} ORDER BY updated_at DESC LIMIT ? OFFSET ?`)
+            .all(...parameters, limit, offset);
+        return rows.map(rowToRecord);
+    }
+    async proposeConclusion(input, options = {}) {
+        const proposedAt = input.createdAt ?? new Date().toISOString();
+        return this.addRecord({
+            ...input,
+            kind: "conclusion",
+            createdAt: proposedAt,
+            approval: { status: "pending", proposedAt },
+        }, options);
+    }
+    async decideConclusion(id, status, patch = {}) {
+        await this.ensureReady();
+        return this.withWriteLock(async () => {
+            const db = await this.database();
+            const row = db.prepare("SELECT * FROM records WHERE id = ? AND deleted_at IS NULL").get(id);
+            if (!row)
+                return undefined;
+            const existing = rowToRecord(row);
+            if (existing.kind !== "conclusion")
+                throw new Error("Only conclusions can be approved or rejected");
+            const currentStatus = conclusionApprovalStatus(existing);
+            if (currentStatus === status)
+                return existing;
+            if (currentStatus !== "pending")
+                throw new Error(`Conclusion is ${currentStatus}; only pending conclusions can be decided`);
+            const text = patch.text === undefined ? existing.text : patch.text.trim();
+            if (!text)
+                throw new Error("text is required");
+            if (status === "approved" && isUnsafeMemoryText(text)) {
+                throw new Error("Unsafe or instruction-like text cannot be approved as durable memory");
+            }
+            const now = new Date().toISOString();
+            const baseTags = patch.tags === undefined ? existing.tags : patch.tags;
+            const safeTags = memorySafetyTags(baseTags, text);
+            const tags = normalizeTags(withApprovalTag(safeTags, status));
+            const changed = text !== existing.text || tags.join("\u001f") !== existing.tags.join("\u001f");
+            const previous = {
+                text: existing.text,
+                tags: existing.tags,
+                source: existing.source,
+                updatedAt: existing.updatedAt,
+            };
+            const updated = {
+                ...existing,
+                text,
+                tags,
+                updatedAt: now,
+                approval: {
+                    status,
+                    proposedAt: existing.approval?.proposedAt ?? existing.createdAt,
+                    decidedAt: now,
+                    ...(patch.decidedBy?.trim() ? { decidedBy: patch.decidedBy.trim() } : {}),
+                    ...(patch.note?.trim() ? { note: patch.note.trim() } : {}),
+                },
+                ...(changed ? { history: [...(existing.history ?? []), previous].slice(-50) } : {}),
+            };
+            const replacements = new Map([[id, updated]]);
+            if (status === "approved" && existing.supersedes) {
+                const originalRow = db.prepare("SELECT * FROM records WHERE id = ? AND deleted_at IS NULL").get(existing.supersedes);
+                if (originalRow) {
+                    const original = rowToRecord(originalRow);
+                    replacements.set(original.id, { ...original, supersededBy: id, deletedAt: now, updatedAt: now });
+                }
+            }
+            await this.rewriteRecords(replacements);
+            indexRecords(db, [...replacements.values()]);
+            await updateIndexMetadata(db, this.config.memoryFile, currentInvalidRecordCount(db));
+            return updated;
+        });
     }
     async count() {
         const db = await this.database();
@@ -182,8 +324,7 @@ export class PathmarkStore {
                 return !record || !removedIds.has(record.id);
             });
             const tmp = path.join(this.config.storeDir, `.memory.activity-retention.${randomUUID()}.tmp`);
-            await writeFile(tmp, lines.length > 0 ? `${lines.join("\n")}\n` : "", "utf8");
-            await rename(tmp, this.config.memoryFile);
+            await writeAtomic(tmp, this.config.memoryFile, lines.length > 0 ? `${lines.join("\n")}\n` : "");
             const kept = parsed.records.filter((record) => !removedIds.has(record.id));
             replaceIndexRecords(db, kept);
             await updateIndexMetadata(db, this.config.memoryFile, parsed.invalidRecordCount);
@@ -263,6 +404,8 @@ export class PathmarkStore {
                 continue;
             if (tagFilter.some((tag) => !record.tags.includes(tag)))
                 continue;
+            if (!isRecallableRecord(record))
+                continue;
             results.push(scoreRecord(record, queryTerms));
         }
         return results;
@@ -284,10 +427,13 @@ export class PathmarkStore {
                 source: existing.source,
                 updatedAt: existing.updatedAt,
             };
+            const replacementTags = patch.tags === undefined ? existing.tags : normalizeTags(patch.tags);
+            const safeTags = memorySafetyTags(replacementTags, text);
+            const approvalStatus = conclusionApprovalStatus(existing);
             const updated = {
                 ...existing,
                 text,
-                tags: patch.tags === undefined ? existing.tags : normalizeTags(patch.tags),
+                tags: approvalStatus ? normalizeTags(withApprovalTag(safeTags, approvalStatus)) : normalizeTags(safeTags),
                 source: patch.source?.trim() || existing.source,
                 updatedAt: new Date().toISOString(),
                 history: [...(existing.history ?? []), previous].slice(-50),
@@ -337,17 +483,23 @@ export class PathmarkStore {
                 return undefined;
             const existing = rowToRecord(row);
             const now = new Date().toISOString();
+            const approval = input.kind === "conclusion" ? input.approval : undefined;
+            const baseTags = memorySafetyTags(input.tags ?? existing.tags, input.text);
             const replacement = {
                 id: input.id?.trim() || randomUUID(),
                 kind: input.kind,
                 text: input.text.trim(),
-                tags: normalizeTags(input.tags ?? existing.tags),
+                tags: approval ? normalizeTags(withApprovalTag(baseTags, approval.status)) : normalizeTags(baseTags),
                 source: input.source?.trim() || existing.source,
                 createdAt: input.createdAt ?? now,
                 updatedAt: input.updatedAt ?? now,
                 supersedes: id,
                 ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
                 ...(input.activity ? { activity: input.activity } : {}),
+                ...(approval ? { approval } : {}),
+                ...(input.kind === "conclusion" && input.evidenceIds
+                    ? { evidenceIds: normalizeEvidenceIds(input.evidenceIds) }
+                    : {}),
             };
             if (!replacement.text)
                 throw new Error("text is required");
@@ -482,8 +634,10 @@ export class PathmarkStore {
         await this.ensureReady();
         if (!this.syncPromise) {
             this.syncPromise = withDirectoryLock(this.config.storeDir, INDEX_LOCK_DIR, async () => {
-                if (!this.db)
+                if (!this.db) {
                     this.db = await openIndexDatabase(this.indexFile);
+                    await sweepStaleTempFiles(this.config.storeDir);
+                }
                 await synchronizeIndex(this.db, this.config.memoryFile);
             }).finally(() => {
                 this.syncPromise = undefined;
@@ -514,14 +668,12 @@ export class PathmarkStore {
             lines.pop();
         lines.push(...additions.map((record) => JSON.stringify(record)), "");
         const tmp = path.join(this.config.storeDir, `.memory.${createHash("sha256").update(String(Date.now())).digest("hex").slice(0, 8)}.tmp`);
-        await writeFile(tmp, lines.join("\n"), "utf8");
-        await rename(tmp, this.config.memoryFile);
+        await writeAtomic(tmp, this.config.memoryFile, lines.join("\n"));
     }
     async replaceCanonical(records) {
         const tmp = path.join(this.config.storeDir, `.memory.${randomUUID()}.tmp`);
         const body = records.length > 0 ? `${records.map((record) => JSON.stringify(record)).join("\n")}\n` : "";
-        await writeFile(tmp, body, "utf8");
-        await rename(tmp, this.config.memoryFile);
+        await writeAtomic(tmp, this.config.memoryFile, body);
     }
     async createBackup(destination) {
         const file = destination
@@ -534,6 +686,36 @@ export class PathmarkStore {
     async withWriteLock(operation) {
         return withDirectoryLock(this.config.storeDir, WRITE_LOCK_DIR, operation);
     }
+}
+// Write-then-rename, cleaning up the temp file if either step throws. Without
+// this a failed rewrite leaks a full-size copy of memory.jsonl into the store
+// dir forever (observed: 35 orphans / 1.2 GB).
+async function writeAtomic(tmp, target, body) {
+    try {
+        await writeFile(tmp, body, "utf8");
+        await rename(tmp, target);
+    }
+    catch (error) {
+        await rm(tmp, { force: true }).catch(() => undefined);
+        throw error;
+    }
+}
+// writeAtomic cannot clean up after SIGKILL/OOM, so sweep stale temps on open.
+// Only touches files older than STALE_TMP_MS to avoid racing a concurrent write
+// from another process sharing this store dir.
+const STALE_TMP_MS = 60 * 60 * 1000;
+async function sweepStaleTempFiles(storeDir) {
+    const entries = await readdir(storeDir).catch(() => []);
+    const cutoff = Date.now() - STALE_TMP_MS;
+    await Promise.all(entries
+        .filter((entry) => entry.startsWith(".memory.") && entry.endsWith(".tmp"))
+        .map(async (entry) => {
+        const file = path.join(storeDir, entry);
+        const info = await stat(file).catch(() => undefined);
+        if (!info || info.mtimeMs >= cutoff)
+            return;
+        await rm(file, { force: true }).catch(() => undefined);
+    }));
 }
 async function openIndexDatabase(indexFile) {
     await mkdir(path.dirname(indexFile), { recursive: true });
@@ -562,7 +744,12 @@ async function openIndexDatabase(indexFile) {
     }
 }
 function initializeSchema(db) {
-    db.exec("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+    // wal_autocheckpoint alone is best-effort: it is skipped whenever another
+    // connection holds an older snapshot, and long-lived `codex observe` processes
+    // hold one continuously. Without a size ceiling the WAL grows without bound
+    // (observed: 800 MB against a 579 MB db). journal_size_limit caps the file's
+    // reclaimed size so a checkpoint that does land also shrinks it on disk.
+    db.exec("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA wal_autocheckpoint = 1000; PRAGMA journal_size_limit = 67108864;");
     db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
     const version = getMeta(db, "schema_version");
     if (version && version !== INDEX_SCHEMA_VERSION) {
@@ -723,19 +910,23 @@ function diagnoseRecords(records, invalidRecordCount, indexFile) {
     const fingerprints = new Set();
     let duplicateCount = 0;
     for (const record of active) {
-        const fingerprint = contentHash(record);
+        const fingerprint = compactionHash(record);
         if (fingerprints.has(fingerprint))
             duplicateCount += 1;
         else
             fingerprints.add(fingerprint);
     }
+    const conclusions = active.filter((record) => record.kind === "conclusion");
     return {
         totalRecords: records.length,
         activeRecords: active.length,
         deletedRecords: records.filter((record) => Boolean(record.deletedAt)).length,
         expiredRecords: records.filter((record) => Boolean(record.expiresAt && Date.parse(record.expiresAt) <= now)).length,
         exactDuplicateRecords: duplicateCount,
-        conclusions: active.filter((record) => record.kind === "conclusion").length,
+        conclusions: conclusions.length,
+        pendingConclusions: conclusions.filter((record) => conclusionApprovalStatus(record) === "pending").length,
+        approvedConclusions: conclusions.filter((record) => conclusionApprovalStatus(record) === "approved").length,
+        rejectedConclusions: conclusions.filter((record) => conclusionApprovalStatus(record) === "rejected").length,
         invalidRecordCount,
         indexFile,
     };
@@ -763,13 +954,15 @@ function compactRecords(records, options) {
     if (!options.dedupe)
         return candidates;
     const counts = new Map();
-    for (const record of candidates)
-        counts.set(contentHash(record), (counts.get(contentHash(record)) ?? 0) + 1);
+    for (const record of candidates) {
+        const hash = compactionHash(record);
+        counts.set(hash, (counts.get(hash) ?? 0) + 1);
+    }
     const seen = new Set();
     candidates = [...candidates]
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
         .filter((record) => {
-        const hash = contentHash(record);
+        const hash = compactionHash(record);
         if (seen.has(hash))
             return false;
         seen.add(hash);
@@ -805,6 +998,10 @@ export function namespaceTag(namespace) {
 function recordFilters(input) {
     const clauses = [];
     const parameters = [];
+    // Pending and rejected conclusions remain in the canonical audit trail but
+    // are structurally ineligible for every normal search/recall path.
+    clauses.push("NOT (records.kind = 'conclusion' AND (instr(records.tags_key, ?) > 0 OR instr(records.tags_key, ?) > 0))");
+    parameters.push(`\u001f${APPROVAL_PENDING_TAG}\u001f`, `\u001f${APPROVAL_REJECTED_TAG}\u001f`);
     if (input.kind) {
         clauses.push("records.kind = ?");
         parameters.push(input.kind);
@@ -860,11 +1057,21 @@ function parseRecordLine(line) {
             return undefined;
         if (value.activity !== undefined && !isPathmarkActivity(value.activity))
             return undefined;
+        if (value.approval !== undefined && (!isPathmarkApproval(value.approval) || value.kind !== "conclusion"))
+            return undefined;
+        if (value.evidenceIds !== undefined &&
+            (value.kind !== "conclusion" ||
+                !Array.isArray(value.evidenceIds) ||
+                !value.evidenceIds.every((id) => typeof id === "string" && id.trim()))) {
+            return undefined;
+        }
+        const approval = value.approval;
+        const normalizedTags = normalizeTags(value.tags);
         return {
             id: value.id,
             kind: value.kind,
             text: value.text,
-            tags: normalizeTags(value.tags),
+            tags: approval ? normalizeTags(withApprovalTag(normalizedTags, approval.status)) : normalizedTags,
             source: value.source,
             createdAt: value.createdAt,
             updatedAt: value.updatedAt,
@@ -875,6 +1082,8 @@ function parseRecordLine(line) {
             ...(typeof value.occurrences === "number" ? { occurrences: value.occurrences } : {}),
             ...(Array.isArray(value.history) ? { history: value.history } : {}),
             ...(value.activity ? { activity: value.activity } : {}),
+            ...(approval ? { approval } : {}),
+            ...(Array.isArray(value.evidenceIds) ? { evidenceIds: normalizeEvidenceIds(value.evidenceIds) } : {}),
         };
     }
     catch {
@@ -940,6 +1149,19 @@ function isPathmarkActivity(value) {
     }
     return true;
 }
+function isPathmarkApproval(value) {
+    if (!isRecord(value))
+        return false;
+    if (value.status !== "pending" && value.status !== "approved" && value.status !== "rejected")
+        return false;
+    if (typeof value.proposedAt !== "string")
+        return false;
+    for (const key of ["decidedAt", "decidedBy", "note"]) {
+        if (value[key] !== undefined && typeof value[key] !== "string")
+            return false;
+    }
+    return true;
+}
 function scoreRecord(record, queryTerms) {
     const haystackTerms = new Set(tokenizeSearchText(`${record.text}\n${record.tags.join(" ")}\n${record.source}`));
     const textTerms = new Set(tokenizeSearchText(record.text));
@@ -969,7 +1191,8 @@ function contentHash(record) {
         tag !== "immediate-prompt" &&
         tag !== "codex-raw" &&
         tag !== "codex-session" &&
-        tag !== "redacted");
+        tag !== "redacted" &&
+        !APPROVAL_STATE_TAGS.has(tag));
     return createHash("sha256")
         .update(record.kind)
         .update("\0")
@@ -978,8 +1201,27 @@ function contentHash(record) {
         .update(scopeTags.sort().join("\0"))
         .digest("hex");
 }
+function compactionHash(record) {
+    return createHash("sha256")
+        .update(contentHash(record))
+        .update("\0")
+        .update(conclusionApprovalStatus(record) ?? "not-a-conclusion")
+        .digest("hex");
+}
+function canDedupeRecord(incoming, candidate) {
+    if (incoming.kind !== "conclusion")
+        return true;
+    const incomingStatus = conclusionApprovalStatus(incoming);
+    const candidateStatus = conclusionApprovalStatus(candidate);
+    if (incomingStatus === "pending")
+        return candidateStatus === "pending" || candidateStatus === "approved";
+    return candidateStatus === incomingStatus;
+}
 function normalizeContent(text) {
     return text.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+}
+function normalizeEvidenceIds(ids) {
+    return [...new Set(ids.map((id) => id.trim()).filter(Boolean))].slice(0, 100);
 }
 function scorePriority(record) {
     let priority = 0;
@@ -1161,6 +1403,10 @@ function envMs(name, fallback) {
 }
 function normalizeTags(tags) {
     return [...new Set(tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean))].sort();
+}
+function memorySafetyTags(tags, text) {
+    const filtered = tags.filter((tag) => tag.trim().toLowerCase() !== QUARANTINED_MEMORY_TAG);
+    return isUnsafeMemoryText(text) ? [...filtered, QUARANTINED_MEMORY_TAG] : filtered;
 }
 function tagsKey(tags) {
     return `\u001f${tags.join("\u001f")}\u001f`;

@@ -1,5 +1,5 @@
 import { loadConfig } from "../config.js";
-import { PathmarkStore } from "../store.js";
+import { PathmarkStore, closeOpenStores } from "../store.js";
 import { observe, prompt, recall, writeback } from "./capture.js";
 import { installPathmarkMcp, pathmarkMcpStatus, removePathmarkMcp } from "./config-file.js";
 import { hookStatus, installPathmarkHooks, uninstallPathmarkHooks } from "./hooks.js";
@@ -30,28 +30,35 @@ export async function runCodexCommand(args) {
     process.exitCode = 2;
 }
 async function runHook(command) {
-    const input = await readHookInput();
-    if (!input)
-        return;
-    const output = command === "recall"
-        ? await recall(input)
-        : command === "prompt"
-            ? await prompt(input)
-            : command === "observe"
-                ? await observe(input)
-                : await writeback(input);
-    if (!output)
-        return;
-    if (command === "recall" || command === "prompt") {
-        process.stdout.write(`${JSON.stringify({
-            hookSpecificOutput: {
-                hookEventName: command === "recall" ? "SessionStart" : "UserPromptSubmit",
-                additionalContext: output,
-            },
-        })}\n`);
-        return;
+    try {
+        const input = await readHookInput();
+        if (!input)
+            return;
+        const output = command === "recall"
+            ? await recall(input)
+            : command === "prompt"
+                ? await prompt(input)
+                : command === "observe"
+                    ? await observe(input)
+                    : await writeback(input);
+        if (!output)
+            return;
+        if (command === "recall" || command === "prompt") {
+            process.stdout.write(`${JSON.stringify({
+                hookSpecificOutput: {
+                    hookEventName: command === "recall" ? "SessionStart" : "UserPromptSubmit",
+                    additionalContext: output,
+                },
+            })}\n`);
+            return;
+        }
+        process.stdout.write(`${output}\n`);
     }
-    process.stdout.write(`${output}\n`);
+    finally {
+        // Hook processes are one-shot. Releasing the index connection here lets the
+        // WAL checkpoint and lets the process exit instead of accumulating.
+        await closeOpenStores();
+    }
 }
 async function printStatus() {
     const config = loadConfig();

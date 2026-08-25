@@ -22,7 +22,8 @@ npm run release:verify -- --tag="v$VERSION"
 git status --short
 ```
 
-The package version, MCP server version, tag, and `docs/releases/v$VERSION.md` must match. Release from a clean commit on `main`.
+The package version, MCP server version, MCP Registry metadata, tag, and
+`docs/releases/v$VERSION.md` must match. Release from a clean commit on `main`.
 
 ## Live Codex verification
 
@@ -46,7 +47,7 @@ Confirm the canonical store and derived index are present:
 
 ```bash
 test -f ~/.pathmark/memory/memory.jsonl
-test -f ~/.pathmark/memory/memory.index.v4.sqlite
+test -f ~/.pathmark/memory/memory.index.v5.sqlite
 ```
 
 ## GitHub and npm release
@@ -83,3 +84,19 @@ Final verification:
 npm view pathmark version dist-tags.latest gitHead dist.attestations --json
 gh release view "v$VERSION"
 ```
+
+## Official MCP Registry
+
+Registry publishing is deliberately separate from the npm tag workflow. The
+official MCP Registry is in preview, and published version metadata is
+immutable. Do not run this workflow without explicit approval to accept the
+Registry Terms and publish the named version.
+
+After npm and the GitHub release are verified, manually dispatch
+`publish-mcp.yml` from `main` with:
+
+- `version`: the exact published npm version;
+- `confirmation`: `PUBLISH io.github.hacksurvivor/pathmark`.
+
+The workflow verifies the tag, npm metadata, `server.json`, and the Registry
+validation endpoint before authenticating with GitHub OIDC and publishing.

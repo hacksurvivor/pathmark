@@ -1,14 +1,20 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { auditMemory } from "./audit.js";
+import { consolidateMemory } from "./consolidate.js";
 import { loadConfig } from "./config.js";
+import { answerMemory } from "./memory-query.js";
 import { redactSecrets } from "./redact.js";
 import { decryptPortableExport } from "./portable.js";
 import { namespaceTag, PathmarkStore } from "./store.js";
-import type { PathmarkActivity, PathmarkRecordDraft, PathmarkRecordKind } from "./types.js";
+import type { PathmarkActivity, PathmarkApproval, PathmarkRecordDraft, PathmarkRecordKind } from "./types.js";
 
 const USAGE = [
   "Usage:",
+  "  pathmark chat QUESTION [--namespace=NAME] [--tag=TAG] [--limit=N] [--kind=memory|conclusion]",
+  "  pathmark consolidate [--days=N] [--namespace=NAME] [--tag=TAG] [--limit=N] [--max-proposals=N] [--apply]",
+  "  pathmark audit [--days=N] [--namespace=NAME] [--tag=TAG]",
   "  pathmark doctor",
   "  pathmark compact [--apply] [--retention-days=N] [--keep-deleted] [--no-dedupe]",
   "  pathmark backup [--output=FILE]",
@@ -23,6 +29,55 @@ export async function runManagementCommand(command: string, args: string[]): Pro
   const store = new PathmarkStore(config);
   const options = parseOptions(args);
 
+  if (command === "chat") {
+    const question = option(options, "question") ?? options.positionals.join(" ").trim();
+    if (!question) throw new Error(`Chat requires a question.\n${USAGE}`);
+    const kind = option(options, "kind");
+    if (kind && kind !== "memory" && kind !== "conclusion") throw new Error("--kind must be memory or conclusion");
+    console.log(
+      JSON.stringify(
+        await answerMemory(store, config, question, {
+          limit: numberOption(options, "limit", config.maxSearchResults),
+          tags: scopedTags(options.values.get("tag") ?? [], option(options, "namespace")),
+          kind: kind as PathmarkRecordKind | undefined,
+        }),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  if (command === "consolidate") {
+    console.log(
+      JSON.stringify(
+        await consolidateMemory(store, config, {
+          days: numberOption(options, "days", 90),
+          evidenceLimit: numberOption(options, "limit", 24),
+          maxProposals: numberOption(options, "max-proposals", 5),
+          tags: scopedTags(options.values.get("tag") ?? [], option(options, "namespace")),
+          apply: options.flags.has("apply"),
+        }),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  if (command === "audit") {
+    console.log(
+      JSON.stringify(
+        await auditMemory(store, {
+          days: numberOption(options, "days", 30),
+          tags: scopedTags(options.values.get("tag") ?? [], option(options, "namespace")),
+          rawRecallDays: config.codexRawRecallDays,
+          rawRecallLimit: config.codexRawRecallLimit,
+        }),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
   if (command === "doctor") {
     console.log(JSON.stringify(await store.diagnose(), null, 2));
     return;
@@ -195,9 +250,28 @@ async function importDrafts(
       expiresAt: typeof value.expiresAt === "string" ? value.expiresAt : undefined,
       supersedes: typeof value.supersedes === "string" ? value.supersedes : undefined,
       activity: importedActivity(value.activity),
+      approval: value.kind === "conclusion" ? importedApproval(value.approval) : undefined,
+      evidenceIds:
+        value.kind === "conclusion" && Array.isArray(value.evidenceIds)
+          ? value.evidenceIds.filter((id): id is string => typeof id === "string" && Boolean(id.trim()))
+          : undefined,
     });
   }
   return drafts;
+}
+
+function importedApproval(value: unknown): PathmarkApproval | undefined {
+  if (!isObject(value)) return undefined;
+  if (value.status !== "pending" && value.status !== "approved" && value.status !== "rejected") return undefined;
+  if (typeof value.proposedAt !== "string" || !value.proposedAt.trim()) return undefined;
+  if (!optionalStrings(value, ["decidedAt", "decidedBy", "note"])) return undefined;
+  return {
+    status: value.status,
+    proposedAt: value.proposedAt,
+    ...(typeof value.decidedAt === "string" ? { decidedAt: value.decidedAt } : {}),
+    ...(typeof value.decidedBy === "string" ? { decidedBy: value.decidedBy } : {}),
+    ...(typeof value.note === "string" ? { note: value.note } : {}),
+  };
 }
 
 function importedActivity(value: unknown): PathmarkActivity | undefined {

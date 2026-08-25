@@ -65,15 +65,23 @@ const tools = await request("tools/list");
 const toolNames = tools.tools.map((tool) => tool.name);
 for (const required of [
   "remember",
+  "create_conclusion",
   "search_memory",
   "recall_memory",
   "session_trace",
   "get_context",
+  "list_conclusions",
+  "list_pending_conclusions",
+  "approve_conclusion",
+  "reject_conclusion",
+  "consolidate_memory",
+  "get_memory_snapshot",
   "ask_memory",
   "chat",
   "update_memory",
   "supersede_memory",
   "purge_memory",
+  "audit_memory",
   "doctor_memory",
   "compact_memory",
   "backup_memory",
@@ -82,6 +90,15 @@ for (const required of [
   if (!toolNames.includes(required)) {
     throw new Error(`Missing expected tool: ${required}`);
   }
+}
+
+const audit = await request("tools/call", {
+  name: "audit_memory",
+  arguments: { days: 30 },
+});
+const auditPayload = JSON.parse(audit.content?.[0]?.text ?? "{}");
+if (auditPayload.precision?.status !== "unlabeled" || typeof auditPayload.recall?.events !== "number") {
+  throw new Error("Memory audit did not return explicit measurement limits and recall metrics");
 }
 
 const saved = await request("tools/call", {
@@ -221,6 +238,71 @@ const scopedContext = await request("tools/call", {
 const scopedText = scopedContext.content?.[0]?.text ?? "";
 if (!scopedText.includes("Namespace alpha decision") || scopedText.includes("Namespace beta decision")) {
   throw new Error("get_context did not honor namespace scoping");
+}
+
+const proposalCall = await request("tools/call", {
+  name: "create_conclusion",
+  arguments: {
+    text: "Approved smoke preference uses concise reports.",
+    tags: ["user-profile"],
+    source: "smoke",
+    evidenceIds: [savedRecord.id],
+  },
+});
+const proposalPayload = JSON.parse(proposalCall.content?.[0]?.text ?? "{}");
+if (proposalPayload.status !== "pending_approval" || !proposalPayload.proposal?.id) {
+  throw new Error("create_conclusion did not stage a pending proposal");
+}
+if (proposalPayload.proposal.evidenceIds?.[0] !== savedRecord.id) {
+  throw new Error("create_conclusion did not preserve evidence provenance");
+}
+const crossScopeProposal = await request("tools/call", {
+  name: "create_conclusion",
+  arguments: {
+    text: "This cross-scope proposal must fail.",
+    namespace: "alpha",
+    evidenceIds: [savedRecord.id],
+  },
+});
+if (!crossScopeProposal.isError || !(crossScopeProposal.content?.[0]?.text ?? "").includes("outside the conclusion scope")) {
+  throw new Error("create_conclusion accepted cross-scope evidence provenance");
+}
+const hiddenProposal = await request("tools/call", {
+  name: "search_memory",
+  arguments: { query: "concise reports" },
+});
+if ((hiddenProposal.content?.[0]?.text ?? "").includes("Approved smoke preference")) {
+  throw new Error("Pending conclusion leaked into normal search");
+}
+const pendingList = await request("tools/call", { name: "list_pending_conclusions", arguments: { limit: 10 } });
+if (!(pendingList.content?.[0]?.text ?? "").includes(proposalPayload.proposal.id)) {
+  throw new Error("Pending conclusion was not available for review");
+}
+await request("tools/call", {
+  name: "approve_conclusion",
+  arguments: { id: proposalPayload.proposal.id, decidedBy: "smoke-test" },
+});
+const snapshot = await request("tools/call", { name: "get_memory_snapshot", arguments: { charLimit: 1200 } });
+const snapshotText = snapshot.content?.[0]?.text ?? "";
+if (!snapshotText.includes("Approved smoke preference") || !snapshotText.includes("[USER]")) {
+  throw new Error("Approved conclusion did not enter the generated snapshot");
+}
+
+const rejectedCall = await request("tools/call", {
+  name: "create_conclusion",
+  arguments: { text: "Rejected smoke conclusion must never be recalled.", source: "smoke" },
+});
+const rejectedPayload = JSON.parse(rejectedCall.content?.[0]?.text ?? "{}");
+await request("tools/call", {
+  name: "reject_conclusion",
+  arguments: { id: rejectedPayload.proposal.id, decidedBy: "smoke-test" },
+});
+const rejectedSearch = await request("tools/call", {
+  name: "search_memory",
+  arguments: { query: "Rejected smoke conclusion" },
+});
+if ((rejectedSearch.content?.[0]?.text ?? "").includes("must never be recalled")) {
+  throw new Error("Rejected conclusion leaked into normal search");
 }
 
 const updated = await request("tools/call", {

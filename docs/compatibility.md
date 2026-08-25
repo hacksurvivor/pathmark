@@ -37,12 +37,14 @@ Use the same `PATHMARK_STORE_DIR` in every harness when you want shared context 
 
 That file holds the shared memory. Each harness can call the same tools:
 
-- `remember` to save a fact, decision, preference, or project note.
-- `create_conclusion` to save a higher-signal durable insight.
+- `remember` to save raw searchable evidence.
+- `create_conclusion` to propose a higher-signal durable decision, preference, constraint, or insight.
+- `consolidate_memory` to review bounded raw evidence and create evidence-backed, approval-gated conclusion candidates.
 - `recall_memory` to recover relevant context and show exactly which memory IDs, timestamps, sources, and matches were used.
 - `session_trace` to inspect the bounded chronological prompt, injected-memory, tool-result, and answer trail for one captured session.
 - `search_memory` and `get_context` to recover relevant context.
 - `ask_memory` to retrieve context and optionally synthesize an answer.
+- `chat` to ask conclusions first and use raw evidence only as an explicit fallback.
 
 Pathmark provides the shared store and MCP tool surface today. `recall_memory` is the portable visible recall surface across Codex, Claude Code, Cursor, opencode, Gemini CLI, Grok-compatible MCP hosts, Hermes Agent, OpenClaw, Kimi/GLM hosts, and generic MCP clients. Harness-specific hooks and importers add automatic transcript capture where the host supports it.
 

@@ -16,18 +16,54 @@ try {
   const source = new PathmarkStore(loadConfig());
   await source.add({ id: "manage-one", kind: "memory", text: "Managed scoped record", tags: ["namespace:managed"], source: "test" });
   await source.add({ id: "manage-other", kind: "memory", text: "Other scoped record", tags: ["namespace:other"], source: "test" });
+  await source.proposeConclusion({
+    id: "manage-pending",
+    text: "Pending imported conclusion",
+    tags: ["namespace:managed"],
+    source: "test",
+  });
+  await source.proposeConclusion({
+    id: "manage-rejected",
+    text: "Rejected imported conclusion",
+    tags: ["namespace:managed"],
+    source: "test",
+  });
+  await source.decideConclusion("manage-rejected", "rejected", { decidedBy: "test" });
 
   const doctor = run(sourceDir, ["doctor"]);
   assert.equal(doctor.status, 0, doctor.stderr);
-  assert.equal(JSON.parse(doctor.stdout).totalRecords, 2);
+  assert.equal(JSON.parse(doctor.stdout).totalRecords, 4);
+
+  const audit = run(sourceDir, ["audit", "--days=30", "--namespace=managed"]);
+  assert.equal(audit.status, 0, audit.stderr);
+  const auditPayload = JSON.parse(audit.stdout);
+  assert.deepEqual(auditPayload.scope.tags, ["namespace:managed"]);
+  assert.equal(auditPayload.inventory.rawEvidenceRecords, 1);
+  assert.equal(auditPayload.precision.status, "unlabeled");
+
+  const chat = run(sourceDir, ["chat", "Managed scoped record", "--namespace=managed"]);
+  assert.equal(chat.status, 0, chat.stderr);
+  const chatPayload = JSON.parse(chat.stdout);
+  assert.equal(chatPayload.retrievalMode, "raw_evidence_fallback");
+  assert.equal(chatPayload.usedMemories[0].id, "manage-one");
+
+  const consolidation = run(sourceDir, ["consolidate", "--namespace=managed"]);
+  assert.equal(consolidation.status, 0, consolidation.stderr);
+  assert.equal(JSON.parse(consolidation.stdout).status, "no_evidence");
 
   const exported = run(sourceDir, ["export", `--output=${exportFile}`, "--namespace=managed"]);
   assert.equal(exported.status, 0, exported.stderr);
-  assert.equal(JSON.parse(exported.stdout).recordCount, 1);
+  assert.equal(JSON.parse(exported.stdout).recordCount, 3);
 
   const imported = run(targetDir, ["import", exportFile, "--namespace=managed"]);
   assert.equal(imported.status, 0, imported.stderr);
-  assert.equal(JSON.parse(imported.stdout).imported, 1);
+  assert.equal(JSON.parse(imported.stdout).imported, 3);
+
+  process.env.PATHMARK_STORE_DIR = targetDir;
+  const target = new PathmarkStore(loadConfig());
+  assert.deepEqual((await target.listConclusions({ status: "pending" })).map((record) => record.id), ["manage-pending"]);
+  assert.deepEqual((await target.listConclusions({ status: "rejected" })).map((record) => record.id), ["manage-rejected"]);
+  assert.equal((await target.search({ query: "imported conclusion" })).length, 0);
 
   const ingested = run(
     targetDir,

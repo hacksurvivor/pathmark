@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use Pathmark, please cite it using the metadata in this file."
 title: "Pathmark"
 type: software
-abstract: "A local-first shared memory layer for Codex, Claude Code, opencode, Gemini CLI, Cursor, and MCP-capable coding agents."
+abstract: "Local-first intent, evidence, and provenance for Codex, Claude Code, opencode, Gemini CLI, Cursor, and MCP-capable coding agents."
 authors:
   - family-names: "Moloman"
     given-names: "Sergey"
@@ -11,5 +11,5 @@ authors:
 repository-code: "https://github.com/hacksurvivor/pathmark"
 url: "https://www.npmjs.com/package/pathmark"
 license: "MIT"
-version: "0.1.9"
-date-released: "2026-07-28"
+version: "0.1.11"
+date-released: "2026-07-29"
