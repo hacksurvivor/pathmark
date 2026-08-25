@@ -34,6 +34,9 @@ assert.equal(
   "server.json must use the current MCP Registry schema",
 );
 assert.equal(packageJson.mcpName, serverJson.name, "package.json mcpName must match server.json name");
+assert.equal(typeof serverJson.description, "string", "server.json description must be a string");
+assert.equal(serverJson.description.length > 0, true, "server.json description must not be empty");
+assert.equal(serverJson.description.length <= 100, true, "server.json description must be at most 100 characters");
 assert.equal(serverJson.version, packageJson.version, "server.json version must match package.json");
 assert.equal(serverJson.packages?.length, 1, "server.json must contain exactly one package");
 assert.equal(serverJson.packages[0].registryType, "npm", "server.json package must use the npm registry");

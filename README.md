@@ -9,18 +9,18 @@ Carry intent across agents without turning stale code facts into hidden memory.
   <a href="https://scorecard.dev/viewer/?uri=github.com/hacksurvivor/pathmark"><img src="https://api.scorecard.dev/projects/github.com/hacksurvivor/pathmark/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
-## What's New — v0.1.11
+## What's New — v0.1.12
 
-Pathmark v0.1.11 turns captured history into proactively useful, auditable intent:
+Pathmark v0.1.12 turns captured history into proactively useful, auditable intent:
 
 - approved conclusions are recalled before raw session evidence;
 - `consolidate_memory` and `pathmark consolidate` turn bounded raw evidence batches into evidence-backed, approval-gated conclusion proposals;
 - Codex receives a proactive consolidation nudge when scoped evidence is piling up unsynthesized;
 - `chat` / `ask_memory` are conclusion-first, and `pathmark chat "question"` makes the same workflow available from the CLI;
 - `pathmark audit` measures recall, stale hits, duplicates, and raw-evidence-to-conclusion coverage without pretending unlabeled retrieval has a precision score;
-- signed release metadata and a controlled GitHub OIDC workflow make the package ready for the official MCP Registry.
+- signed release metadata and a controlled GitHub OIDC workflow publish validated metadata to the official MCP Registry.
 
-See the [v0.1.11 release notes](docs/releases/v0.1.11.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
+See the [v0.1.12 release notes](docs/releases/v0.1.12.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/hacksurvivor/pathmark/main/assets/pathmark-hero.png" alt="Pathmark local intent and provenance shared by Codex, Claude Code, opencode, and Gemini CLI" width="100%">

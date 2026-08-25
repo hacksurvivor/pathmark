@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.hacksurvivor/pathmark",
   "title": "Pathmark",
-  "description": "Local-first intent, evidence, and provenance for Codex, Claude Code, Cursor, Gemini CLI, and other MCP clients.",
-  "version": "0.1.11",
+  "description": "Local-first intent and provenance for Codex, Claude Code, Cursor, Gemini CLI, and MCP agents.",
+  "version": "0.1.12",
   "repository": {
     "url": "https://github.com/hacksurvivor/pathmark",
     "source": "github"
@@ -13,7 +13,7 @@
     {
       "registryType": "npm",
       "identifier": "pathmark",
-      "version": "0.1.11",
+      "version": "0.1.12",
       "transport": {
         "type": "stdio"
       }
