@@ -3,7 +3,6 @@
 The README keeps the newest user-facing changes at the top. Detailed, immutable release notes live here:
 
 - [v0.1.11](docs/releases/v0.1.11.md) — intent-first recall, proactive consolidation, evidence provenance, memory chat CLI, and memory-value audit.
-- [v0.1.10](docs/releases/v0.1.10.md) — official MCP Registry metadata and controlled publication.
 - [v0.1.9](docs/releases/v0.1.9.md) — authorship, citation, and dependency maintenance.
 - [v0.1.8](docs/releases/v0.1.8.md) — production release preparation.
 - [v0.1.7](docs/releases/v0.1.7.md) — Build Week infrastructure and portable memory operations.

@@ -11,13 +11,14 @@ Carry intent across agents without turning stale code facts into hidden memory.
 
 ## What's New — v0.1.11
 
-The next Pathmark release turns captured history into proactively useful, auditable intent:
+Pathmark v0.1.11 turns captured history into proactively useful, auditable intent:
 
 - approved conclusions are recalled before raw session evidence;
 - `consolidate_memory` and `pathmark consolidate` turn bounded raw evidence batches into evidence-backed, approval-gated conclusion proposals;
 - Codex receives a proactive consolidation nudge when scoped evidence is piling up unsynthesized;
 - `chat` / `ask_memory` are conclusion-first, and `pathmark chat "question"` makes the same workflow available from the CLI;
-- `pathmark audit` measures recall, stale hits, duplicates, and raw-evidence-to-conclusion coverage without pretending unlabeled retrieval has a precision score.
+- `pathmark audit` measures recall, stale hits, duplicates, and raw-evidence-to-conclusion coverage without pretending unlabeled retrieval has a precision score;
+- signed release metadata and a controlled GitHub OIDC workflow make the package ready for the official MCP Registry.
 
 See the [v0.1.11 release notes](docs/releases/v0.1.11.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
 
