@@ -57,18 +57,18 @@ async function testUnicodePromptRecall() {
   const workspaceTag = `workspace:${createHash("sha256").update(path.resolve(cwd)).digest("hex").slice(0, 12)}`;
 
   await store.addRecords([
-    record({
+    { ...record({
       id: "relevant-russian",
       text: "Решение по аутентификации: использовать короткие сессии.",
       tags: [workspaceTag, "project:pathmark", "role-user"],
       at: "2026-01-01T00:00:00.000Z",
-    }),
-    record({
+    }), kind: "conclusion" },
+    { ...record({
       id: "relevant-cjk",
       text: "用户认证方案使用短会话。",
       tags: [workspaceTag, "project:pathmark", "role-user"],
       at: "2026-01-02T00:00:00.000Z",
-    }),
+    }), kind: "conclusion" },
     ...Array.from({ length: 8 }, (_, index) =>
       record({
         id: `irrelevant-${index}`,

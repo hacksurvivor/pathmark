@@ -100,7 +100,7 @@ await store.addRecords([
   },
   {
     id: "cross-meetily",
-    kind: "memory",
+    kind: "conclusion",
     text: "Meetily transcription design uses a local-first desktop capture architecture.",
     tags: scoped("meetily", "/workspace/meetily"),
     source: "quality-fixture",
@@ -108,7 +108,7 @@ await store.addRecords([
   },
   {
     id: "cross-call-center",
-    kind: "memory",
+    kind: "conclusion",
     text: "Call-center Mexico calls use a bounded daily schedule and stop before 17:30.",
     tags: scoped("call-center", "/workspace/call-center"),
     source: "quality-fixture",
@@ -116,7 +116,7 @@ await store.addRecords([
   },
   {
     id: "cross-md-adopt",
-    kind: "memory",
+    kind: "conclusion",
     text: "MD Adopt matches shelter pets using temperament and family preferences.",
     tags: scoped("md-adopt", "/workspace/md-adopt"),
     source: "quality-fixture",
@@ -124,7 +124,7 @@ await store.addRecords([
   },
   {
     id: "cross-elder-tv",
-    kind: "memory",
+    kind: "conclusion",
     text: "Elder TV provides simplified remote controls and safe recovery for older viewers.",
     tags: scoped("elder-tv", "/workspace/elder-tv"),
     source: "quality-fixture",
@@ -132,7 +132,7 @@ await store.addRecords([
   },
   {
     id: "cross-co-ode",
-    kind: "memory",
+    kind: "conclusion",
     text: "Co-ode review uses native macOS components and deterministic Scratchpad fixtures.",
     tags: scoped("co-ode", "/workspace/co-ode"),
     source: "quality-fixture",

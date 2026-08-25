@@ -84,7 +84,9 @@ export function selectRelevantResults(results, query, limit, options = {}) {
         return [];
     const queryWeight = [...queryTerms].reduce((total, term) => total + termWeight(term), 0);
     const defaultRequiredMatches = Math.min(3, Math.max(1, Math.ceil(queryTerms.size * 0.34)));
-    const requiredMatches = Math.min(defaultRequiredMatches, Math.max(1, options.maxRequiredMatches ?? defaultRequiredMatches));
+    const cappedRequiredMatches = Math.min(defaultRequiredMatches, Math.max(1, options.maxRequiredMatches ?? defaultRequiredMatches));
+    const requiredMatches = Math.min(queryTerms.size, Math.max(cappedRequiredMatches, Math.max(1, options.minRequiredMatches ?? 1)));
+    const minCoverage = Math.max(0, Math.min(options.minCoverage ?? 0, 1));
     const ranked = signalResults
         .map((result) => {
         const textTerms = informativeSearchTerms(result.record.text);
@@ -102,7 +104,7 @@ export function selectRelevantResults(results, query, limit, options = {}) {
             terms,
         };
     })
-        .filter((candidate) => candidate.relevance > 0 && candidate.matchedCount >= requiredMatches)
+        .filter((candidate) => candidate.relevance > 0 && candidate.matchedCount >= requiredMatches && candidate.coverage >= minCoverage)
         .sort((a, b) => b.scopeMatches - a.scopeMatches ||
         b.coverage - a.coverage ||
         b.matchedCount - a.matchedCount ||

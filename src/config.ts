@@ -46,6 +46,8 @@ export function loadConfig(): PathmarkConfig {
     codexCaptureToolOutputs: envFlag("PATHMARK_CODEX_CAPTURE_TOOL_OUTPUTS", false),
     codexMemorySnapshot: envFlag("PATHMARK_CODEX_MEMORY_SNAPSHOT", true),
     snapshotCharLimit: Math.max(500, Math.min(envNonNegativeInt("PATHMARK_SNAPSHOT_CHARS", 4_000), 12_000)),
+    codexRawRecallDays: Math.min(envNonNegativeInt("PATHMARK_CODEX_RAW_RECALL_DAYS", 30), 3_650),
+    codexRawRecallLimit: Math.min(envNonNegativeInt("PATHMARK_CODEX_RAW_RECALL_LIMIT", 2), 2),
     conclusionApprovalRequired: envFlag("PATHMARK_CONCLUSION_APPROVAL", true),
     defaultNamespace: process.env.PATHMARK_NAMESPACE?.trim() || undefined,
     redactMcpWrites: envFlag("PATHMARK_REDACT_MCP_WRITES", true),

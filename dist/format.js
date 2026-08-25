@@ -32,6 +32,8 @@ export function publicConfig(config) {
         codexCaptureToolOutputs: config.codexCaptureToolOutputs,
         codexMemorySnapshot: config.codexMemorySnapshot,
         snapshotCharLimit: config.snapshotCharLimit,
+        codexRawRecallDays: config.codexRawRecallDays,
+        codexRawRecallLimit: config.codexRawRecallLimit,
         conclusionApprovalRequired: config.conclusionApprovalRequired,
         defaultNamespace: config.defaultNamespace ?? "unscoped",
         redactMcpWrites: config.redactMcpWrites,

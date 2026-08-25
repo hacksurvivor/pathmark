@@ -92,6 +92,8 @@ export interface PathmarkConfig {
   codexCaptureToolOutputs: boolean;
   codexMemorySnapshot: boolean;
   snapshotCharLimit: number;
+  codexRawRecallDays: number;
+  codexRawRecallLimit: number;
   conclusionApprovalRequired: boolean;
   defaultNamespace?: string;
   redactMcpWrites: boolean;

@@ -2,7 +2,7 @@
   "@context": "https://w3id.org/codemeta/3.0",
   "@type": "SoftwareSourceCode",
   "name": "Pathmark",
-  "description": "A local-first shared memory layer for Codex, Claude Code, opencode, Gemini CLI, Cursor, and MCP-capable coding agents.",
+  "description": "Local-first intent, evidence, and provenance for Codex, Claude Code, opencode, Gemini CLI, Cursor, and MCP-capable coding agents.",
   "version": "0.1.10",
   "dateCreated": "2026-06-29",
   "datePublished": "2026-07-29",

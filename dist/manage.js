@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { auditMemory } from "./audit.js";
 import { loadConfig } from "./config.js";
 import { redactSecrets } from "./redact.js";
 import { decryptPortableExport } from "./portable.js";
 import { namespaceTag, PathmarkStore } from "./store.js";
 const USAGE = [
     "Usage:",
+    "  pathmark audit [--days=N] [--namespace=NAME] [--tag=TAG]",
     "  pathmark doctor",
     "  pathmark compact [--apply] [--retention-days=N] [--keep-deleted] [--no-dedupe]",
     "  pathmark backup [--output=FILE]",
@@ -19,6 +21,15 @@ export async function runManagementCommand(command, args) {
     const config = loadConfig();
     const store = new PathmarkStore(config);
     const options = parseOptions(args);
+    if (command === "audit") {
+        console.log(JSON.stringify(await auditMemory(store, {
+            days: numberOption(options, "days", 30),
+            tags: scopedTags(options.values.get("tag") ?? [], option(options, "namespace")),
+            rawRecallDays: config.codexRawRecallDays,
+            rawRecallLimit: config.codexRawRecallLimit,
+        }), null, 2));
+        return;
+    }
     if (command === "doctor") {
         console.log(JSON.stringify(await store.diagnose(), null, 2));
         return;

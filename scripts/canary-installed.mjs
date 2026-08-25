@@ -66,6 +66,7 @@ try {
     "approve_conclusion",
     "reject_conclusion",
     "get_memory_snapshot",
+    "audit_memory",
   ]) {
     assert.equal(byName.has(toolName), true, `installed canary missing ${toolName}`);
   }

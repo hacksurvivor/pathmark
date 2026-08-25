@@ -4,7 +4,7 @@ import { loadConfig } from "../config.js";
 import { deterministicId } from "../ids.js";
 import { isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "../memory-safety.js";
 import { redactSecrets } from "../redact.js";
-import { filterLowSignalResults, informativeSearchTerms, selectRelevantResults } from "../relevance.js";
+import { informativeSearchTerms, selectRelevantResults } from "../relevance.js";
 import { PathmarkStore } from "../store.js";
 import { buildMemorySnapshot } from "../snapshot.js";
 import { tokenizeSearchText } from "../tokenize.js";
@@ -25,15 +25,11 @@ const TRANSCRIPT_PARSER_VERSION = 5;
 export async function recall(input) {
     const config = loadConfig();
     const store = new PathmarkStore(config);
-    const query = recallQuery(input);
     try {
         const snapshot = config.codexMemorySnapshot
             ? await buildMemorySnapshot(store, { scopeTags: primaryPromptRecallTags(input), charLimit: config.snapshotCharLimit })
             : undefined;
-        if (!query)
-            return joinSnapshot(snapshot?.context, memoryBlock([], config.memoryFile));
-        const results = await recallSearchResults(store, query, input);
-        return joinSnapshot(snapshot?.context, memoryBlock(filterLowSignalResults(filterRecallResults(results, input)).slice(0, 8), config.memoryFile));
+        return joinSnapshot(snapshot?.context, memoryBlock([], config.memoryFile));
     }
     catch {
         return memoryBlock([], config.memoryFile);
@@ -54,6 +50,8 @@ export async function prompt(input) {
             ? await proactivePromptContext(store, input, text, {
                 memoryFile: config.memoryFile,
                 visibleRecall: config.codexVisibleRecall,
+                rawRecallDays: config.codexRawRecallDays,
+                rawRecallLimit: config.codexRawRecallLimit,
                 activityRetentionDays: config.activityRetentionDays,
                 activityMaxRecords: config.activityMaxRecords,
             })
@@ -85,13 +83,24 @@ async function proactivePromptContext(store, input, promptText, options) {
     if (!query)
         return "";
     const tagFilters = promptRecallTagFilters(input);
-    const scopedResults = tagFilters.length > 0
-        ? await Promise.all(tagFilters.map((tags) => store.search({ query, tags, limit: RECALL_SEARCH_LIMIT })))
+    const scopedConclusions = tagFilters.length > 0
+        ? await Promise.all(tagFilters.map((tags) => store.search({ query, tags, kind: "conclusion", limit: RECALL_SEARCH_LIMIT })))
         : [];
-    let filtered = selectPromptResults(scopedResults, input, promptText, { scoped: true });
+    let filtered = selectPromptResults(scopedConclusions, input, promptText, {
+        limit: PROMPT_RECALL_LIMIT,
+        relevance: { maxRequiredMatches: 2 },
+    });
     if (filtered.length === 0) {
-        const globalCandidates = await store.search({ query, limit: RECALL_SEARCH_LIMIT });
-        filtered = selectPromptResults([crossWorkspacePromptCandidates(globalCandidates, promptText)], input, promptText);
+        const globalCandidates = await store.search({ query, kind: "conclusion", limit: RECALL_SEARCH_LIMIT });
+        filtered = selectPromptResults([crossWorkspacePromptCandidates(globalCandidates, promptText)], input, promptText, { limit: PROMPT_RECALL_LIMIT });
+    }
+    if (filtered.length === 0 && options.rawRecallDays > 0 && options.rawRecallLimit > 0 && tagFilters.length > 0) {
+        const scopedRaw = await Promise.all(tagFilters.map((tags) => store.search({ query, tags, kind: "memory", limit: RECALL_SEARCH_LIMIT })));
+        filtered = selectPromptResults(scopedRaw, input, promptText, {
+            limit: options.rawRecallLimit,
+            rawRecallDays: options.rawRecallDays,
+            relevance: { maxRequiredMatches: 2, minRequiredMatches: 2, minCoverage: 0.25 },
+        });
     }
     if (filtered.length === 0)
         return "";
@@ -118,19 +127,20 @@ async function proactivePromptContext(store, input, promptText, options) {
                 query,
                 tags: exactVisibleRecallTags(filtered, primaryPromptRecallTags(input)),
                 ids: filtered.map((result) => result.record.id),
-                limit: PROMPT_RECALL_LIMIT,
+                limit: filtered.length,
             }
             : undefined,
     });
 }
-function selectPromptResults(resultSets, input, promptText, options = {}) {
+function selectPromptResults(resultSets, input, promptText, options) {
     const merged = new Map();
     for (const resultSet of resultSets) {
         for (const result of resultSet) {
             if (isCurrentImmediatePrompt(result, input, promptText) ||
                 result.record.tags.includes("pathmark-activity") ||
                 result.record.tags.includes(QUARANTINED_MEMORY_TAG) ||
-                isUnsafeMemoryText(result.record.text)) {
+                isUnsafeMemoryText(result.record.text) ||
+                (result.record.kind === "memory" && !isRawRecallEligible(result, options.rawRecallDays))) {
                 continue;
             }
             const existing = merged.get(result.record.id);
@@ -139,7 +149,17 @@ function selectPromptResults(resultSets, input, promptText, options = {}) {
         }
     }
     const ranked = [...merged.values()].sort((a, b) => b.score - a.score || b.record.createdAt.localeCompare(a.record.createdAt));
-    return selectRelevantResults(ranked, promptText, PROMPT_RECALL_LIMIT, options.scoped ? { maxRequiredMatches: 2 } : {});
+    return selectRelevantResults(ranked, promptText, options.limit, options.relevance);
+}
+function isRawRecallEligible(result, rawRecallDays) {
+    if (result.record.kind !== "memory")
+        return true;
+    if (rawRecallDays === undefined || rawRecallDays <= 0)
+        return false;
+    const updatedAt = Date.parse(result.record.updatedAt);
+    if (!Number.isFinite(updatedAt))
+        return false;
+    return updatedAt >= Date.now() - rawRecallDays * 24 * 60 * 60 * 1_000;
 }
 function exactVisibleRecallTags(results, preferredTags) {
     for (const tag of preferredTags) {
@@ -468,57 +488,6 @@ function safeMemoryPreview(text) {
         .replaceAll("<", "\\u003c")
         .replaceAll(">", "\\u003e")
         .replaceAll("&", "\\u0026");
-}
-function recallQuery(input) {
-    const specificTerms = recallSpecificTerms(input);
-    if (specificTerms.length === 0)
-        return "";
-    return [...new Set([...specificTerms, ...GENERIC_RECALL_TERMS])].join(" ");
-}
-async function recallSearchResults(store, query, input) {
-    const specificQuery = recallSpecificTerms(input).join(" ");
-    const searches = [store.search({ query, limit: RECALL_SEARCH_LIMIT })];
-    if (specificQuery && specificQuery !== query) {
-        searches.push(store.search({ query: specificQuery, limit: RECALL_SEARCH_LIMIT }));
-    }
-    const merged = new Map();
-    for (const results of await Promise.all(searches)) {
-        for (const result of results) {
-            const existing = merged.get(result.record.id);
-            if (!existing || result.score > existing.score)
-                merged.set(result.record.id, result);
-        }
-    }
-    return [...merged.values()].sort((a, b) => b.score - a.score || b.record.createdAt.localeCompare(a.record.createdAt));
-}
-function filterRecallResults(results, input) {
-    const specificTerms = recallSpecificTerms(input);
-    const session = input.session_id?.trim().toLowerCase();
-    const workspaceTag = workspaceTagFromCwd(input.cwd);
-    if (specificTerms.length === 0 && !session)
-        return results;
-    return results.filter((result) => {
-        const record = result.record;
-        if (record.tags.includes("pathmark-activity"))
-            return false;
-        const tags = record.tags.map((tag) => tag.toLowerCase());
-        const source = record.source.toLowerCase();
-        if (session && (source === `codex:session:${session}` || tags.includes(`session:${session}`)))
-            return true;
-        if (workspaceTag && tags.some((tag) => tag.startsWith("workspace:")))
-            return tags.includes(workspaceTag);
-        if (workspaceTag)
-            return false;
-        const haystack = `${record.text} ${record.tags.join(" ")} ${record.source}`.toLowerCase();
-        return specificTerms.some((term) => haystack.includes(term.toLowerCase()));
-    });
-}
-function recallSpecificTerms(input) {
-    const cwdTerms = recallTermsFromCwd(input.cwd);
-    const workspaceTag = workspaceTagFromCwd(input.cwd);
-    const session = input.session_id?.trim();
-    const sessionTerms = session && !GENERIC_RECALL_TOKENS.has(session.toLowerCase()) ? [session] : [];
-    return [...new Set([...(workspaceTag ? [workspaceTag] : []), ...cwdTerms, ...sessionTerms])];
 }
 function promptRecallQuery(input, promptText) {
     const promptTerms = tokenizeSearchText(redactSecrets(promptText).text).filter((term) => !GENERIC_RECALL_TOKENS.has(term));

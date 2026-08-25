@@ -21,6 +21,13 @@ try {
   assert.equal(doctor.status, 0, doctor.stderr);
   assert.equal(JSON.parse(doctor.stdout).totalRecords, 2);
 
+  const audit = run(sourceDir, ["audit", "--days=30", "--namespace=managed"]);
+  assert.equal(audit.status, 0, audit.stderr);
+  const auditPayload = JSON.parse(audit.stdout);
+  assert.deepEqual(auditPayload.scope.tags, ["namespace:managed"]);
+  assert.equal(auditPayload.inventory.rawEvidenceRecords, 1);
+  assert.equal(auditPayload.precision.status, "unlabeled");
+
   const exported = run(sourceDir, ["export", `--output=${exportFile}`, "--namespace=managed"]);
   assert.equal(exported.status, 0, exported.stderr);
   assert.equal(JSON.parse(exported.stdout).recordCount, 1);

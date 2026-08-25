@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { auditMemory } from "./audit.js";
 import { synthesizeWithCommand } from "./chat.js";
 import { loadConfig } from "./config.js";
 import { jsonText, publicConfig, summarizeRecords, summarizeSearch, usedMemories } from "./format.js";
@@ -23,8 +24,8 @@ export async function runMcpServer() {
         inputSchema: {},
     }, async () => jsonText(publicConfig(config)));
     server.registerTool("remember", {
-        title: "Remember",
-        description: "Save a durable local memory item.",
+        title: "Save raw evidence",
+        description: "Save raw searchable evidence. Durable intent should use the approval-gated conclusion workflow.",
         inputSchema: {
             text: z.string().min(1).describe("Memory text to save."),
             tags: z.array(z.string()).optional().describe("Optional lowercase-ish tags for later filtering."),
@@ -332,6 +333,21 @@ export async function runMcpServer() {
             confirm: z.boolean().default(false).describe("False previews the purge; true applies it and creates a backup."),
         },
     }, async ({ id, tags, namespace, source, before, confirm }) => jsonText(await store.purge({ id, tags, namespace, source, before, dryRun: !confirm })));
+    server.registerTool("audit_memory", {
+        title: "Audit memory value",
+        description: "Measure capture-to-recall behavior, unused records, recall age, duplicate rate, stale raw hits, and available precision evidence without changing memory.",
+        inputSchema: {
+            days: z.number().int().min(0).max(3_650).optional(),
+            tags: z.array(z.string()).optional(),
+            namespace: z.string().min(1).optional(),
+        },
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    }, async ({ days, tags, namespace }) => jsonText(await auditMemory(store, {
+        days,
+        tags: scopedTags(tags, namespace ?? config.defaultNamespace),
+        rawRecallDays: config.codexRawRecallDays,
+        rawRecallLimit: config.codexRawRecallLimit,
+    })));
     server.registerTool("doctor_memory", {
         title: "Diagnose memory store",
         description: "Report duplicate, deleted, expired, conclusion, invalid-record, and index health counts without changing data.",

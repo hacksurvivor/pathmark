@@ -80,6 +80,7 @@ for (const required of [
   "update_memory",
   "supersede_memory",
   "purge_memory",
+  "audit_memory",
   "doctor_memory",
   "compact_memory",
   "backup_memory",
@@ -88,6 +89,15 @@ for (const required of [
   if (!toolNames.includes(required)) {
     throw new Error(`Missing expected tool: ${required}`);
   }
+}
+
+const audit = await request("tools/call", {
+  name: "audit_memory",
+  arguments: { days: 30 },
+});
+const auditPayload = JSON.parse(audit.content?.[0]?.text ?? "{}");
+if (auditPayload.precision?.status !== "unlabeled" || typeof auditPayload.recall?.events !== "number") {
+  throw new Error("Memory audit did not return explicit measurement limits and recall metrics");
 }
 
 const saved = await request("tools/call", {
