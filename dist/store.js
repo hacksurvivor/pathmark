@@ -87,9 +87,8 @@ export class PathmarkStore {
                 await copyFile(this.config.memoryFile, options.backupFile);
             }
             const findRecord = db.prepare("SELECT * FROM records WHERE id = ?");
-            const findDuplicate = options.dedupe
-                ? db.prepare("SELECT * FROM records WHERE content_hash = ? AND deleted_at IS NULL AND instr(tags_key, ?) = 0 " +
-                    "ORDER BY CASE WHEN instr(tags_key, ?) > 0 THEN 1 ELSE 0 END ASC, updated_at DESC LIMIT 1")
+            const findDuplicates = options.dedupe
+                ? db.prepare("SELECT * FROM records WHERE content_hash = ? AND deleted_at IS NULL ORDER BY updated_at DESC")
                 : undefined;
             const results = [];
             const createdRecords = [];
@@ -128,19 +127,21 @@ export class PathmarkStore {
                         ? { evidenceIds: normalizeEvidenceIds(input.evidenceIds) }
                         : {}),
                 };
-                if (findDuplicate) {
+                if (findDuplicates) {
                     const hash = contentHash(record);
-                    const pendingDuplicate = pendingHashes.get(hash);
+                    const pendingDuplicate = pendingHashes.get(hash)?.find((candidate) => canDedupeRecord(record, candidate));
                     if (pendingDuplicate) {
                         results.push({ record: pendingDuplicate, created: false });
                         continue;
                     }
-                    const duplicate = findDuplicate.get(hash, `\u001f${APPROVAL_REJECTED_TAG}\u001f`, `\u001f${APPROVAL_PENDING_TAG}\u001f`);
+                    const duplicate = findDuplicates.all(hash)
+                        .map(rowToRecord)
+                        .find((candidate) => canDedupeRecord(record, candidate));
                     if (duplicate) {
-                        results.push({ record: rowToRecord(duplicate), created: false });
+                        results.push({ record: duplicate, created: false });
                         continue;
                     }
-                    pendingHashes.set(hash, record);
+                    pendingHashes.set(hash, [...(pendingHashes.get(hash) ?? []), record]);
                 }
                 pending.set(id, record);
                 createdRecords.push(record);
@@ -909,7 +910,7 @@ function diagnoseRecords(records, invalidRecordCount, indexFile) {
     const fingerprints = new Set();
     let duplicateCount = 0;
     for (const record of active) {
-        const fingerprint = contentHash(record);
+        const fingerprint = compactionHash(record);
         if (fingerprints.has(fingerprint))
             duplicateCount += 1;
         else
@@ -953,13 +954,15 @@ function compactRecords(records, options) {
     if (!options.dedupe)
         return candidates;
     const counts = new Map();
-    for (const record of candidates)
-        counts.set(contentHash(record), (counts.get(contentHash(record)) ?? 0) + 1);
+    for (const record of candidates) {
+        const hash = compactionHash(record);
+        counts.set(hash, (counts.get(hash) ?? 0) + 1);
+    }
     const seen = new Set();
     candidates = [...candidates]
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
         .filter((record) => {
-        const hash = contentHash(record);
+        const hash = compactionHash(record);
         if (seen.has(hash))
             return false;
         seen.add(hash);
@@ -1197,6 +1200,22 @@ function contentHash(record) {
         .update("\0")
         .update(scopeTags.sort().join("\0"))
         .digest("hex");
+}
+function compactionHash(record) {
+    return createHash("sha256")
+        .update(contentHash(record))
+        .update("\0")
+        .update(conclusionApprovalStatus(record) ?? "not-a-conclusion")
+        .digest("hex");
+}
+function canDedupeRecord(incoming, candidate) {
+    if (incoming.kind !== "conclusion")
+        return true;
+    const incomingStatus = conclusionApprovalStatus(incoming);
+    const candidateStatus = conclusionApprovalStatus(candidate);
+    if (incomingStatus === "pending")
+        return candidateStatus === "pending" || candidateStatus === "approved";
+    return candidateStatus === incomingStatus;
 }
 function normalizeContent(text) {
     return text.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
