@@ -26,6 +26,13 @@ assert.equal(
 
 const codeMeta = JSON.parse(await readFile("codemeta.json", "utf8"));
 assert.equal(codeMeta.version, packageJson.version, "codemeta.json version must match package.json");
+assert.match(codeMeta.datePublished, /^\d{4}-\d{2}-\d{2}$/, "codemeta.json datePublished must be an ISO date");
+assert.equal(codeMeta.dateModified, codeMeta.datePublished, "codemeta.json release dates must match");
+assert.equal(
+  citation.includes(`date-released: ${JSON.stringify(codeMeta.datePublished)}`),
+  true,
+  "CITATION.cff release date must match codemeta.json",
+);
 
 const serverJson = JSON.parse(await readFile("server.json", "utf8"));
 assert.equal(
