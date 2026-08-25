@@ -26,6 +26,13 @@ assert.equal(
 
 const codeMeta = JSON.parse(await readFile("codemeta.json", "utf8"));
 assert.equal(codeMeta.version, packageJson.version, "codemeta.json version must match package.json");
+assert.match(codeMeta.datePublished, /^\d{4}-\d{2}-\d{2}$/, "codemeta.json datePublished must be an ISO date");
+assert.equal(codeMeta.dateModified, codeMeta.datePublished, "codemeta.json release dates must match");
+assert.equal(
+  citation.includes(`date-released: ${JSON.stringify(codeMeta.datePublished)}`),
+  true,
+  "CITATION.cff release date must match codemeta.json",
+);
 
 const serverJson = JSON.parse(await readFile("server.json", "utf8"));
 assert.equal(
@@ -34,6 +41,9 @@ assert.equal(
   "server.json must use the current MCP Registry schema",
 );
 assert.equal(packageJson.mcpName, serverJson.name, "package.json mcpName must match server.json name");
+assert.equal(typeof serverJson.description, "string", "server.json description must be a string");
+assert.equal(serverJson.description.length > 0, true, "server.json description must not be empty");
+assert.equal(serverJson.description.length <= 100, true, "server.json description must be at most 100 characters");
 assert.equal(serverJson.version, packageJson.version, "server.json version must match package.json");
 assert.equal(serverJson.packages?.length, 1, "server.json must contain exactly one package");
 assert.equal(serverJson.packages[0].registryType, "npm", "server.json package must use the npm registry");
