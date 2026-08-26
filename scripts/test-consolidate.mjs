@@ -5,7 +5,7 @@ import path from "node:path";
 import { prompt, recall } from "../dist/codex/capture.js";
 import { consolidationNudge, consolidateMemory, prepareConsolidationBatch } from "../dist/consolidate.js";
 import { loadConfig } from "../dist/config.js";
-import { answerMemory } from "../dist/memory-query.js";
+import { answerMemory, relevantMemorySearch } from "../dist/memory-query.js";
 import { PathmarkStore } from "../dist/store.js";
 
 const temp = await mkdtemp(path.join(os.tmpdir(), "pathmark-consolidate-test-"));
@@ -43,6 +43,26 @@ try {
       createdAt: "2026-08-20T00:02:00.000Z",
     },
   ]);
+  await store.addRecords(
+    Array.from({ length: 60 }, (_, index) => ({
+      id: `foreign-scope-cap-conclusion-${index}`,
+      kind: "conclusion",
+      text: `Workspace scope inheritance release checklist foreign competitor ${index}.`,
+      tags: ["project:foreign", "decision", "approval-approved"],
+      source: "test",
+      evidenceIds: ["legacy-foreign-evidence"],
+    })),
+  );
+  await store.addRecords(
+    Array.from({ length: 60 }, (_, index) => ({
+      id: `local-scope-rescore-conclusion-${index}`,
+      kind: "conclusion",
+      text: `Unrelated local archive marker ${index}.`,
+      tags: ["project:consolidate", "decision", "approval-approved"],
+      source: "test",
+      evidenceIds: ["legacy-local-evidence"],
+    })),
+  );
   const cursorFirst = await prepareConsolidationBatch(store, {
     tags: ["workspace:cursor"],
     evidenceLimit: 2,
@@ -216,6 +236,70 @@ try {
     tags: ["workspace:consolidate", "project:consolidate", "approval-approved"],
     source: "test",
   });
+  await store.addRecords([
+    {
+      id: "legacy-local-evidence",
+      kind: "memory",
+      text: "Scope inheritance evidence belongs to the consolidate workspace.",
+      tags: ["workspace:consolidate", "project:consolidate", "namespace:pathmark", "role-user"],
+      source: "test",
+    },
+    {
+      id: "legacy-foreign-evidence",
+      kind: "memory",
+      text: "Scope inheritance evidence belongs to a different workspace.",
+      tags: ["workspace:foreign", "project:foreign", "namespace:foreign", "role-user"],
+      source: "test",
+    },
+    {
+      id: "legacy-project-only-conclusion",
+      kind: "conclusion",
+      text: "Workspace scope inheritance keeps the local release checklist accessible.",
+      tags: ["project:consolidate", "decision", "approval-approved"],
+      source: "test",
+      evidenceIds: ["legacy-local-evidence"],
+    },
+    {
+      id: "foreign-project-only-conclusion",
+      kind: "conclusion",
+      text: "Workspace scope inheritance keeps a foreign release checklist accessible.",
+      tags: ["project:foreign", "decision", "approval-approved"],
+      source: "test",
+      evidenceIds: ["legacy-foreign-evidence"],
+    },
+    {
+      id: "mixed-project-only-conclusion",
+      kind: "conclusion",
+      text: "Workspace scope inheritance keeps a mixed release checklist accessible.",
+      tags: ["project:consolidate", "decision", "approval-approved"],
+      source: "test",
+      evidenceIds: ["legacy-local-evidence", "legacy-foreign-evidence"],
+    },
+    {
+      id: "missing-evidence-conclusion",
+      kind: "conclusion",
+      text: "Missing evidence must not grant workspace scope inheritance.",
+      tags: ["project:consolidate", "decision", "approval-approved"],
+      source: "test",
+      evidenceIds: ["evidence-does-not-exist"],
+    },
+    {
+      id: "wrong-kind-evidence-conclusion",
+      kind: "conclusion",
+      text: "Conclusion evidence must not grant workspace scope inheritance.",
+      tags: ["project:consolidate", "decision", "approval-approved"],
+      source: "test",
+      evidenceIds: ["legacy-project-only-conclusion"],
+    },
+    {
+      id: "legacy-workspace-only-conclusion",
+      kind: "conclusion",
+      text: "Project scope inheritance keeps the local deployment runbook accessible.",
+      tags: ["workspace:consolidate", "project-inheritance-test", "approval-approved"],
+      source: "test",
+      evidenceIds: ["legacy-local-evidence"],
+    },
+  ]);
   const conclusionChat = await answerMemory(store, config, "What is required for signed artifact releases?", {
     tags: ["workspace:consolidate"],
   });
@@ -224,6 +308,34 @@ try {
   assert.equal(conclusionChat.answer, "Signed artifacts are required for releases.");
   assert.equal(conclusionChat.synthesis, "approved_conclusion_extract");
   assert.equal(typeof conclusionChat.recallId, "string");
+
+  const inheritedScopeChat = await answerMemory(
+    store,
+    config,
+    "Which workspace scope inheritance decision applies to the release checklist?",
+    { tags: ["workspace:consolidate", "decision"] },
+  );
+  assert.equal(inheritedScopeChat.retrievalMode, "approved_conclusions");
+  assert.deepEqual(inheritedScopeChat.usedMemories.map((memory) => memory.id), ["legacy-project-only-conclusion"]);
+  assert.equal(inheritedScopeChat.usedMemories[0].score > 0, true);
+  assert.equal(inheritedScopeChat.usedMemories[0].matchedTerms.length > 0, true);
+  assert.equal(inheritedScopeChat.answer, "Workspace scope inheritance keeps the local release checklist accessible.");
+
+  const inheritedNamespaceResults = await relevantMemorySearch(
+    store,
+    config,
+    "Which namespace scope inheritance decision applies to the release checklist?",
+    { kind: "conclusion", tags: ["namespace:pathmark", "decision"] },
+  );
+  assert.deepEqual(inheritedNamespaceResults.map((result) => result.record.id), ["legacy-project-only-conclusion"]);
+
+  const inheritedProjectResults = await relevantMemorySearch(
+    store,
+    config,
+    "Which project scope inheritance decision applies to the deployment runbook?",
+    { kind: "conclusion", tags: ["project:consolidate", "project-inheritance-test"] },
+  );
+  assert.deepEqual(inheritedProjectResults.map((result) => result.record.id), ["legacy-workspace-only-conclusion"]);
 
   const multiIntentChat = await answerMemory(
     store,

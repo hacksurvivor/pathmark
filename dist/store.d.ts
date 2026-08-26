@@ -73,6 +73,9 @@ export declare class PathmarkStore {
     get(id: string, options?: {
         includeDeleted?: boolean;
     }): Promise<PathmarkRecord | undefined>;
+    getMany(ids: string[], options?: {
+        includeDeleted?: boolean;
+    }): Promise<Map<string, PathmarkRecord>>;
     searchByIds(input: {
         ids: string[];
         query: string;

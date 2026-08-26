@@ -385,8 +385,22 @@ export class PathmarkStore {
         const row = db.prepare(`SELECT * FROM records WHERE id = ?${options.includeDeleted ? "" : " AND deleted_at IS NULL"}`).get(id);
         return row ? rowToRecord(row) : undefined;
     }
+    async getMany(ids, options = {}) {
+        const selectedIds = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+        const records = new Map();
+        if (selectedIds.length === 0)
+            return records;
+        const db = await this.database();
+        const find = db.prepare(`SELECT * FROM records WHERE id = ?${options.includeDeleted ? "" : " AND deleted_at IS NULL"}`);
+        for (const id of selectedIds) {
+            const row = find.get(id);
+            if (row)
+                records.set(id, rowToRecord(row));
+        }
+        return records;
+    }
     async searchByIds(input) {
-        const ids = [...new Set(input.ids.map((id) => id.trim()).filter(Boolean))].slice(0, 50);
+        const ids = [...new Set(input.ids.map((id) => id.trim()).filter(Boolean))].slice(0, 10_000);
         if (ids.length === 0)
             return [];
         const db = await this.database();

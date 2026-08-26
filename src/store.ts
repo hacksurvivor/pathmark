@@ -500,13 +500,27 @@ export class PathmarkStore {
     return row ? rowToRecord(row) : undefined;
   }
 
+  async getMany(ids: string[], options: { includeDeleted?: boolean } = {}): Promise<Map<string, PathmarkRecord>> {
+    const selectedIds = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+    const records = new Map<string, PathmarkRecord>();
+    if (selectedIds.length === 0) return records;
+
+    const db = await this.database();
+    const find = db.prepare(`SELECT * FROM records WHERE id = ?${options.includeDeleted ? "" : " AND deleted_at IS NULL"}`);
+    for (const id of selectedIds) {
+      const row = find.get(id) as IndexedRow | undefined;
+      if (row) records.set(id, rowToRecord(row));
+    }
+    return records;
+  }
+
   async searchByIds(input: {
     ids: string[];
     query: string;
     tags?: string[];
     kind?: PathmarkRecordKind;
   }): Promise<SearchResult[]> {
-    const ids = [...new Set(input.ids.map((id) => id.trim()).filter(Boolean))].slice(0, 50);
+    const ids = [...new Set(input.ids.map((id) => id.trim()).filter(Boolean))].slice(0, 10_000);
     if (ids.length === 0) return [];
     const db = await this.database();
     const now = new Date().toISOString();
