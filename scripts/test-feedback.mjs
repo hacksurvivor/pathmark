@@ -6,6 +6,7 @@ import { auditMemory } from "../dist/audit.js";
 import { loadConfig } from "../dist/config.js";
 import { recordRecallFeedback } from "../dist/feedback.js";
 import { answerMemory } from "../dist/memory-query.js";
+import { sessionTrace } from "../dist/session-trace.js";
 import { PathmarkStore } from "../dist/store.js";
 
 const storeDir = await mkdtemp(path.join(os.tmpdir(), "pathmark-feedback-test-"));
@@ -19,20 +20,20 @@ try {
       id: "relevant-memory",
       kind: "memory",
       text: "The deployment preference is signed artifacts.",
-      tags: ["workspace:feedback", "role-user"],
+      tags: ["workspace:feedback", "session:feedback-session", "role-user"],
       source: "feedback-test",
     },
     {
       id: "irrelevant-memory",
       kind: "memory",
       text: "The deployment preference includes a weekly status email.",
-      tags: ["workspace:feedback", "role-user"],
+      tags: ["workspace:feedback", "session:feedback-session", "role-user"],
       source: "feedback-test",
     },
   ]);
 
   const chat = await answerMemory(store, config, "deployment preference signed artifacts status email", {
-    tags: ["workspace:feedback"],
+    tags: ["workspace:feedback", "session:feedback-session"],
     kind: "memory",
     limit: 2,
   });
@@ -55,6 +56,11 @@ try {
   assert.equal(audit.precision.labelCoverage, 1);
 
   await assert.rejects(
+    recordRecallFeedback(store, config, { recallId: chat.recallId }),
+    /requires at least one relevant or irrelevant memory id/,
+  );
+
+  await assert.rejects(
     recordRecallFeedback(store, config, {
       recallId: chat.recallId,
       relevantIds: ["relevant-memory"],
@@ -69,6 +75,24 @@ try {
     }),
     /was not part of recall/,
   );
+
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  await recordRecallFeedback(store, config, {
+    recallId: chat.recallId,
+    irrelevantIds: ["relevant-memory"],
+  });
+  const reratedAudit = await auditMemory(store, { days: 30, tags: ["workspace:feedback"] });
+  assert.equal(reratedAudit.precision.value, 0);
+  assert.equal(reratedAudit.precision.labeledReferences, 2);
+  assert.equal(reratedAudit.precision.relevantReferences, 0);
+  assert.equal(reratedAudit.precision.irrelevantReferences, 2);
+
+  const trace = await sessionTrace(store, "feedback-session");
+  const activityEntries = trace.entries.filter((entry) => entry.type === "recall" || entry.type === "recall_feedback");
+  assert.deepEqual(activityEntries.map((entry) => entry.type), ["recall", "recall_feedback", "recall_feedback"]);
+  assert.equal(activityEntries[1].recallId, chat.recallId);
+  assert.deepEqual(activityEntries[1].relevantIds, ["relevant-memory"]);
+  assert.deepEqual(activityEntries[2].irrelevantIds, ["relevant-memory"]);
 
   const readOnlyChat = await answerMemory(
     {

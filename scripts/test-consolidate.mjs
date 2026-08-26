@@ -63,6 +63,14 @@ try {
   });
   assert.deepEqual(cursorSecond.evidence.map((record) => record.id), ["cursor-oldest"]);
   assert.equal(cursorSecond.nextCursor, null);
+  await assert.rejects(
+    prepareConsolidationBatch(store, {
+      tags: ["workspace:cursor"],
+      cursor: "stale-or-invalid-cursor",
+      now: new Date("2026-08-25T00:00:00.000Z"),
+    }),
+    /Consolidation cursor not found in the eligible evidence: stale-or-invalid-cursor/,
+  );
 
   await store.addRecords([
     evidence("user-decision", "The deployment decision is to require signed artifacts.", "role-user", "2026-08-20T00:00:00.000Z"),

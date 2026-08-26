@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "../dist/config.js";
-import { selectRelevantResults } from "../dist/relevance.js";
+import { selectRelevantResults, selectRelevantResultsByIntent } from "../dist/relevance.js";
 import { PathmarkStore } from "../dist/store.js";
 import { tokenizeSearchText } from "../dist/tokenize.js";
 
@@ -131,4 +131,37 @@ assert.equal(
   "generic Russian overlap must not be treated as relevant memory",
 );
 
+const multiIntentResults = [
+  result("alpha-primary", "Alpha deployment requires signed bundles.", 9),
+  result("beta-primary", "Beta reporting requires weekly summaries.", 8),
+  result("shared-primary", "Alpha beta release foundation.", 7),
+  result("whole-query-filler", "Alpha beta archive marker.", 1),
+];
+const multiIntentSelected = selectRelevantResultsByIntent(
+  multiIntentResults,
+  "alpha deployment and beta reporting",
+  4,
+);
+assert.deepEqual(
+  new Set(multiIntentSelected.map((candidate) => candidate.record.id)),
+  new Set(["alpha-primary", "beta-primary", "shared-primary", "whole-query-filler"]),
+  "whole-query ranking should fill capacity left after per-intent deduplication",
+);
+
 console.log("Retrieval acceptance tests passed");
+
+function result(id, text, score) {
+  return {
+    record: {
+      id,
+      kind: "conclusion",
+      text,
+      tags: ["approval-approved"],
+      source: "relevance-acceptance",
+      createdAt: at,
+      updatedAt: at,
+    },
+    score,
+    matchedTerms: [],
+  };
+}
