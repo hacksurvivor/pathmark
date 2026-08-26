@@ -15,7 +15,7 @@ Pathmark v0.1.13 closes the loop between proactive recall, conversational answer
 
 - multi-intent questions retrieve a relevant approved conclusion for each topic instead of collapsing into one noisy match;
 - unscoped chat no longer falls back to raw cross-workspace history, and internal instruction captures are excluded from proactive recall and consolidation;
-- client-mode `chat` / `ask_memory` return safe answers from approved conclusions plus an exact `recallId`;
+- client-mode `chat` / `ask_memory` return safe answers from approved conclusions plus an exact `recallId` for matched recalls;
 - MCP `rate_recall` and CLI `pathmark feedback` turn explicit relevance labels into measured precision and label coverage;
 - consolidation exposes stable cursors and eligible-backlog counts so large histories can be reviewed progressively without automatic approval;
 - audit separates consolidation-eligible evidence from intentionally excluded raw records, making coverage numbers actionable.
@@ -381,7 +381,7 @@ PATHMARK_OPENAI_MODEL=... \
 pathmark
 ```
 
-This mode only affects `ask_memory`. Regular MCP tools still store and retrieve local memory without a model provider.
+This mode affects MCP `ask_memory` / `chat` and CLI `pathmark chat`. Regular MCP tools still store and retrieve local memory without a model provider.
 
 ## Setup CLI
 
@@ -431,7 +431,7 @@ pathmark purge --namespace=old-client --apply
 
 `pathmark chat` and the MCP `chat` / `ask_memory` tools search approved conclusions first. Multi-intent questions can return separate conclusions for separate clauses. In default client mode, approved conclusions produce a safe extractive `answer`; a configured `codex`, `command`, or `openai-compatible` provider can synthesize richer prose. Raw fallback requires an explicit scope (`--namespace` / tags) or `kind: memory`, preventing unscoped cross-workspace history from entering chat.
 
-Every non-empty chat recall returns a `recallId`. Use MCP `rate_recall` or `pathmark feedback` with exact recalled IDs to label relevance. `pathmark audit` reports `precision.status: "labeled"`, measured precision, and label coverage once feedback exists.
+Every matched chat query records recall activity and returns a `recallId` when the store is writable. Abstentions and read-only stores return `recallId: null`. Use MCP `rate_recall` or `pathmark feedback` with exact recalled IDs to label relevance. `pathmark audit` reports `precision.status: "labeled"`, measured precision, and label coverage once feedback exists.
 
 `pathmark consolidate` is preview-first. With default client synthesis it returns the bounded evidence and exact instructions for the host agent, which can call `create_conclusion` with supporting `evidenceIds`. When more eligible evidence remains, the result includes `nextCursor` and `remainingAfterBatch`; pass the cursor to review the next stable page. With a configured server-side synthesis provider, it previews structured candidates; `--apply` stages them as pending conclusions for `approve_conclusion` or `reject_conclusion`. It never auto-approves extracted intent.
 
