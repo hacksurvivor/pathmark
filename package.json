@@ -1,6 +1,6 @@
 {
   "name": "pathmark",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "mcpName": "io.github.hacksurvivor/pathmark",
   "description": "Local-first intent, evidence, and provenance for Codex, Claude Code, Cursor, Gemini CLI, and MCP agents.",
   "type": "module",

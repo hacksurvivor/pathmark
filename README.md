@@ -9,26 +9,18 @@ Carry intent across agents without turning stale code facts into hidden memory.
   <a href="https://scorecard.dev/viewer/?uri=github.com/hacksurvivor/pathmark"><img src="https://api.scorecard.dev/projects/github.com/hacksurvivor/pathmark/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
-## What's New — v0.1.12
+## What's New — v0.1.13
 
-Pathmark v0.1.12 turns captured history into proactively useful, auditable intent:
+Pathmark v0.1.13 closes the loop between proactive recall, conversational answers, and measurable memory quality:
 
-- approved conclusions are recalled before raw session evidence;
-- `consolidate_memory` and `pathmark consolidate` turn bounded raw evidence batches into evidence-backed, approval-gated conclusion proposals;
-- Codex receives a proactive consolidation nudge when scoped evidence is piling up unsynthesized;
-- `chat` / `ask_memory` are conclusion-first, and `pathmark chat "question"` makes the same workflow available from the CLI;
-- `pathmark audit` measures recall, stale hits, duplicates, and raw-evidence-to-conclusion coverage without pretending unlabeled retrieval has a precision score;
-- signed release metadata and a controlled GitHub OIDC workflow publish validated metadata to the official MCP Registry.
+- multi-intent questions retrieve a relevant approved conclusion for each topic instead of collapsing into one noisy match;
+- unscoped chat no longer falls back to raw cross-workspace history, and internal instruction captures are excluded from proactive recall and consolidation;
+- client-mode `chat` / `ask_memory` return safe answers from approved conclusions plus an exact `recallId`;
+- MCP `rate_recall` and CLI `pathmark feedback` turn explicit relevance labels into measured precision and label coverage;
+- consolidation exposes stable cursors and eligible-backlog counts so large histories can be reviewed progressively without automatic approval;
+- audit separates consolidation-eligible evidence from intentionally excluded raw records, making coverage numbers actionable.
 
-See the [v0.1.12 release notes](docs/releases/v0.1.12.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
-
-### In development
-
-- multi-intent questions retrieve one approved conclusion per topic before filling remaining results;
-- unscoped chat never falls back to raw records from another workspace, and instruction-shaped captures are excluded from raw fallback;
-- client-mode chat returns a safe extractive answer for approved conclusions and a `recallId` for explicit relevance feedback;
-- `rate_recall` / `pathmark feedback` turn user labels into measured precision instead of an inferred score;
-- consolidation batches expose `nextCursor` and eligible-backlog counts so large scoped histories can be reviewed progressively without auto-approval.
+See the [v0.1.13 release notes](docs/releases/v0.1.13.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/hacksurvivor/pathmark/main/assets/pathmark-hero.png" alt="Pathmark local intent and provenance shared by Codex, Claude Code, opencode, and Gemini CLI" width="100%">

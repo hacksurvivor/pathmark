@@ -4,14 +4,11 @@ The README keeps the newest user-facing changes at the top. Detailed, immutable 
 
 ## Unreleased
 
-- Added clause-aware approved-conclusion retrieval for multi-intent questions.
-- Prevented unscoped raw chat fallback across workspaces and excluded instruction-shaped captures from raw fallback and consolidation.
-- Added safe extractive answers for approved conclusions in client-mode chat.
-- Added exact recall IDs, MCP `rate_recall`, CLI `pathmark feedback`, labeled precision, and label-coverage metrics.
-- Added progressive consolidation cursors and separated consolidation-eligible evidence from excluded raw records in audit coverage.
+No unreleased changes.
 
 ## Releases
 
+- [v0.1.13](docs/releases/v0.1.13.md) — multi-intent proactive recall, safe conversational answers, explicit recall feedback, and progressive consolidation.
 - [v0.1.12](docs/releases/v0.1.12.md) — official MCP Registry compatibility and release-time metadata validation.
 - [v0.1.11](docs/releases/v0.1.11.md) — intent-first recall, proactive consolidation, evidence provenance, memory chat CLI, and memory-value audit.
 - [v0.1.9](docs/releases/v0.1.9.md) — authorship, citation, and dependency maintenance.

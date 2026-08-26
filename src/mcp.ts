@@ -21,7 +21,7 @@ export async function runMcpServer(): Promise<void> {
 
   const server = new McpServer({
     name: "pathmark",
-    version: "0.1.12",
+    version: "0.1.13",
   });
 
   server.registerTool(
