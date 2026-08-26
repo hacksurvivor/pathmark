@@ -60,6 +60,8 @@ Pathmark gives those tools one place to read and write intent and evidence:
 
 Pathmark stays provider-neutral. Codex gets one optional synthesis preset. The core server works with any MCP client that can use local tools.
 
+An experimental loopback-only WebMCP lab also lets the ChatGPT desktop app's built-in browser discover safe Pathmark site tools without exposing memory creation or approval to websites.
+
 Pathmark requires Node.js 22.5 or newer.
 
 ## Cross-Harness Memory
@@ -142,6 +144,23 @@ pathmark setup opencode --json
 pathmark setup gemini-cli
 pathmark setup kimi
 ```
+
+## Experimental WebMCP Lab
+
+OpenAI site tools currently use the proposed WebMCP browser API. Pathmark's lab exposes exactly three page-scoped tools:
+
+- `pathmark_recall_memory` and `pathmark_ask_memory` are read-only, default to approved conclusions, require an explicit `kind: memory` request for raw evidence, and mark returned memory as untrusted content;
+- `pathmark_rate_recall` records explicit relevance feedback only for exact IDs from a prior recall;
+- there is no WebMCP tool for remembering, creating conclusions, approval, editing, deletion, export, or purge.
+
+Start the lab from a source build, then open the printed loopback URL in the ChatGPT desktop app's built-in browser:
+
+```bash
+npm run build
+node dist/index.js webmcp --tag=workspace:my-project
+```
+
+The server binds only to `127.0.0.1`. API calls require the exact page origin and a per-process token. Browser tool calls are added asynchronously to the existing session trace with a redacted argument preview and hash, status, duration, output hash, origin provenance, and an ephemeral `webmcp-*` session ID, so audit persistence does not delay the browser response. The page also has a manual dogfood form for browsers without native WebMCP support; this exercises the same execute callback and local API but does not prove native agent discovery.
 
 See [docs/compatibility.md](docs/compatibility.md) for Codex, Claude Code, opencode, Gemini CLI, OpenClaw, Hermes Agent, Grok CLI, Kimi, GLM, and generic MCP setups.
 

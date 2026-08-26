@@ -9,6 +9,9 @@ if (domain === "codex") {
 } else if (domain === "setup") {
   const { runSetupCommand } = await import("./setup.js");
   await runSetupCommand(rest);
+} else if (domain === "webmcp") {
+  const { runWebMcpCommand } = await import("./webmcp.js");
+  await runWebMcpCommand(rest);
 } else if (["chat", "feedback", "consolidate", "audit", "doctor", "compact", "backup", "export", "import", "ingest", "purge"].includes(domain ?? "")) {
   const { runManagementCommand } = await import("./manage.js");
   await runManagementCommand(domain, rest);
@@ -16,13 +19,13 @@ if (domain === "codex") {
   const { runPortableHook } = await import("./hook-cli.js");
   await runPortableHook(rest[0]);
 } else if (domain === "help" || domain === "--help" || domain === "-h") {
-  console.log("Usage: pathmark [setup <client>|codex <command>|hook <event>|chat|feedback|consolidate|audit|doctor|compact|backup|export|import|ingest|purge]");
+  console.log("Usage: pathmark [setup <client>|codex <command>|webmcp|hook <event>|chat|feedback|consolidate|audit|doctor|compact|backup|export|import|ingest|purge]");
   console.log("");
   console.log("No arguments starts the Pathmark MCP stdio server.");
 } else {
   if (domain) {
     console.error(`Unknown command: ${domain}`);
-    console.error("Usage: pathmark [setup <client>|codex <command>|hook <event>|chat|feedback|consolidate|audit|doctor|compact|backup|export|import|ingest|purge]");
+    console.error("Usage: pathmark [setup <client>|codex <command>|webmcp|hook <event>|chat|feedback|consolidate|audit|doctor|compact|backup|export|import|ingest|purge]");
     process.exitCode = 2;
   } else {
     await runMcpServer();

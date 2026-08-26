@@ -23,7 +23,7 @@ export async function relevantMemorySearch(store, config, query, options = {}) {
 }
 export async function answerMemory(store, config, question, options = {}) {
     const results = await relevantMemorySearch(store, config, question, options);
-    const recallId = await recordMemoryQueryRecall(store, config, question, results, options.tags).catch(() => undefined);
+    const recallId = await recordMemoryQueryRecall(store, config, question, results, [...(options.tags ?? []), ...(options.activityTags ?? [])]).catch(() => undefined);
     const synthesized = await synthesizeWithCommand({ config, question, context: results });
     const extractive = synthesized ? undefined : approvedConclusionAnswer(results);
     const answer = synthesized ?? extractive ?? (results.length === 0 ? "No approved conclusion or scoped raw evidence matched this question." : undefined);

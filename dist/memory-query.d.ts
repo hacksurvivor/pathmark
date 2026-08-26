@@ -3,6 +3,7 @@ import type { PathmarkConfig, PathmarkRecordKind, SearchResult } from "./types.j
 export interface MemoryQueryOptions {
     limit?: number;
     tags?: string[];
+    activityTags?: string[];
     kind?: PathmarkRecordKind;
 }
 export declare function relevantMemorySearch(store: PathmarkStore, config: PathmarkConfig, query: string, options?: MemoryQueryOptions): Promise<SearchResult[]>;
