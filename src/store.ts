@@ -1280,6 +1280,16 @@ function isPathmarkActivity(value: unknown): value is NonNullable<PathmarkRecord
       Number(value.memoryCount) >= 0
     );
   }
+  if (value.type === "recall_feedback") {
+    return (
+      typeof value.recallId === "string" &&
+      Array.isArray(value.relevantIds) &&
+      value.relevantIds.every((id) => typeof id === "string") &&
+      Array.isArray(value.irrelevantIds) &&
+      value.irrelevantIds.every((id) => typeof id === "string") &&
+      (value.note === undefined || typeof value.note === "string")
+    );
+  }
   if (value.type !== "tool" || typeof value.toolName !== "string") return false;
   if (value.status !== "success" && value.status !== "error" && value.status !== "unknown") return false;
   if (value.filesChanged !== true && value.filesChanged !== false && value.filesChanged !== "unknown") return false;

@@ -130,6 +130,49 @@ export function selectRelevantResults(results, query, limit, options = {}) {
     }
     return selected.map((candidate) => candidate.result);
 }
+export function selectRelevantResultsByIntent(results, query, limit, options = {}) {
+    const intents = splitQueryIntents(query);
+    if (intents.length <= 1)
+        return selectRelevantResults(results, query, limit, options);
+    const selected = [];
+    const selectedIds = new Set();
+    const perIntentLimit = Math.min(2, Math.max(1, Math.ceil(limit / intents.length)));
+    const intentOptions = { ...options, maxRequiredMatches: Math.min(options.maxRequiredMatches ?? 1, 1) };
+    for (const intent of intents) {
+        for (const result of selectRelevantResults(results, intent, perIntentLimit, intentOptions)) {
+            if (selectedIds.has(result.record.id))
+                continue;
+            selected.push(result);
+            selectedIds.add(result.record.id);
+            if (selected.length >= limit)
+                return selected;
+        }
+    }
+    for (const result of selectRelevantResults(results, query, limit, options)) {
+        if (selectedIds.has(result.record.id))
+            continue;
+        selected.push(result);
+        selectedIds.add(result.record.id);
+        if (selected.length >= limit)
+            break;
+    }
+    return selected;
+}
+export function splitQueryIntents(query) {
+    const pieces = query
+        .split(/(?:[,;\n]+|\b(?:and|also|plus)\b|\b(?:и|также)\b)/giu)
+        .map((piece) => piece.trim())
+        .filter((piece) => informativeSearchTerms(piece).size > 0);
+    if (pieces.length <= 1)
+        return [query];
+    const distinct = new Map();
+    for (const piece of pieces) {
+        const key = [...informativeSearchTerms(piece)].sort().join("\0");
+        if (key && !distinct.has(key))
+            distinct.set(key, piece);
+    }
+    return distinct.size > 1 ? [...distinct.values()] : [query];
+}
 export function filterLowSignalResults(results) {
     return results.filter((result) => !isLowSignalCapture(result));
 }

@@ -46,6 +46,19 @@ try {
   const chatPayload = JSON.parse(chat.stdout);
   assert.equal(chatPayload.retrievalMode, "raw_evidence_fallback");
   assert.equal(chatPayload.usedMemories[0].id, "manage-one");
+  assert.equal(typeof chatPayload.recallId, "string");
+
+  const feedback = run(sourceDir, [
+    "feedback",
+    `--recall-id=${chatPayload.recallId}`,
+    "--relevant=manage-one",
+  ]);
+  assert.equal(feedback.status, 0, feedback.stderr);
+  assert.deepEqual(JSON.parse(feedback.stdout).relevantIds, ["manage-one"]);
+
+  const labeledAudit = run(sourceDir, ["audit", "--days=30", "--namespace=managed"]);
+  assert.equal(labeledAudit.status, 0, labeledAudit.stderr);
+  assert.equal(JSON.parse(labeledAudit.stdout).precision.status, "labeled");
 
   const consolidation = run(sourceDir, ["consolidate", "--namespace=managed"]);
   assert.equal(consolidation.status, 0, consolidation.stderr);
@@ -53,11 +66,11 @@ try {
 
   const exported = run(sourceDir, ["export", `--output=${exportFile}`, "--namespace=managed"]);
   assert.equal(exported.status, 0, exported.stderr);
-  assert.equal(JSON.parse(exported.stdout).recordCount, 3);
+  assert.equal(JSON.parse(exported.stdout).recordCount, 5);
 
   const imported = run(targetDir, ["import", exportFile, "--namespace=managed"]);
   assert.equal(imported.status, 0, imported.stderr);
-  assert.equal(JSON.parse(imported.stdout).imported, 3);
+  assert.equal(JSON.parse(imported.stdout).imported, 5);
 
   process.env.PATHMARK_STORE_DIR = targetDir;
   const target = new PathmarkStore(loadConfig());

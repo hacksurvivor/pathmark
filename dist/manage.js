@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { auditMemory } from "./audit.js";
 import { consolidateMemory } from "./consolidate.js";
+import { recordRecallFeedback } from "./feedback.js";
 import { loadConfig } from "./config.js";
 import { answerMemory } from "./memory-query.js";
 import { redactSecrets } from "./redact.js";
@@ -11,7 +12,8 @@ import { namespaceTag, PathmarkStore } from "./store.js";
 const USAGE = [
     "Usage:",
     "  pathmark chat QUESTION [--namespace=NAME] [--tag=TAG] [--limit=N] [--kind=memory|conclusion]",
-    "  pathmark consolidate [--days=N] [--namespace=NAME] [--tag=TAG] [--limit=N] [--max-proposals=N] [--apply]",
+    "  pathmark feedback --recall-id=ID [--relevant=ID] [--irrelevant=ID] [--note=TEXT]",
+    "  pathmark consolidate [--days=N] [--namespace=NAME] [--tag=TAG] [--limit=N] [--cursor=ID] [--max-proposals=N] [--apply]",
     "  pathmark audit [--days=N] [--namespace=NAME] [--tag=TAG]",
     "  pathmark doctor",
     "  pathmark compact [--apply] [--retention-days=N] [--keep-deleted] [--no-dedupe]",
@@ -39,11 +41,24 @@ export async function runManagementCommand(command, args) {
         }), null, 2));
         return;
     }
+    if (command === "feedback") {
+        const recallId = option(options, "recall-id") ?? options.positionals[0];
+        if (!recallId)
+            throw new Error(`Feedback requires --recall-id=ID.\n${USAGE}`);
+        console.log(JSON.stringify(await recordRecallFeedback(store, config, {
+            recallId,
+            relevantIds: options.values.get("relevant"),
+            irrelevantIds: options.values.get("irrelevant"),
+            note: option(options, "note"),
+        }), null, 2));
+        return;
+    }
     if (command === "consolidate") {
         console.log(JSON.stringify(await consolidateMemory(store, config, {
             days: numberOption(options, "days", 90),
             evidenceLimit: numberOption(options, "limit", 24),
             maxProposals: numberOption(options, "max-proposals", 5),
+            cursor: option(options, "cursor"),
             tags: scopedTags(options.values.get("tag") ?? [], option(options, "namespace")),
             apply: options.flags.has("apply"),
         }), null, 2));
@@ -221,6 +236,15 @@ function importedActivity(value) {
         value.memoryIds.every((id) => typeof id === "string") &&
         Number.isInteger(value.memoryCount) &&
         Number(value.memoryCount) >= 0) {
+        return value;
+    }
+    if (value.type === "recall_feedback" &&
+        typeof value.recallId === "string" &&
+        Array.isArray(value.relevantIds) &&
+        value.relevantIds.every((id) => typeof id === "string") &&
+        Array.isArray(value.irrelevantIds) &&
+        value.irrelevantIds.every((id) => typeof id === "string") &&
+        (value.note === undefined || typeof value.note === "string")) {
         return value;
     }
     if (value.type === "tool" &&

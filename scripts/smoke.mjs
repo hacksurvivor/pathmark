@@ -69,6 +69,7 @@ for (const required of [
   "search_memory",
   "recall_memory",
   "session_trace",
+  "rate_recall",
   "get_context",
   "list_conclusions",
   "list_pending_conclusions",
@@ -138,6 +139,7 @@ const chat = await request("tools/call", {
   arguments: {
     question: "What did the MCP smoke test save?",
     limit: 3,
+    tags: ["smoke"],
   },
 });
 
@@ -147,6 +149,25 @@ if (!chatText.includes("Pathmark smoke test memory")) {
 }
 if (!chatText.includes("usedMemories")) {
   throw new Error("Chat did not return transparent used memory metadata");
+}
+const chatPayload = JSON.parse(chatText);
+if (typeof chatPayload.recallId !== "string") {
+  throw new Error("Chat did not return a recall id for relevance feedback");
+}
+await request("tools/call", {
+  name: "rate_recall",
+  arguments: {
+    recallId: chatPayload.recallId,
+    relevantIds: [savedRecord.id],
+  },
+});
+const labeledAudit = await request("tools/call", {
+  name: "audit_memory",
+  arguments: { days: 30, tags: ["smoke"] },
+});
+const labeledAuditPayload = JSON.parse(labeledAudit.content?.[0]?.text ?? "{}");
+if (labeledAuditPayload.precision?.status !== "labeled" || labeledAuditPayload.precision?.value !== 1) {
+  throw new Error("Explicit recall feedback did not produce labeled precision");
 }
 
 const recall = await request("tools/call", {

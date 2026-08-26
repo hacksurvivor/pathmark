@@ -6,6 +6,7 @@ export interface ConsolidationOptions {
     evidenceLimit?: number;
     maxProposals?: number;
     apply?: boolean;
+    cursor?: string;
     now?: Date;
 }
 export interface ConsolidationBatch {
@@ -15,9 +16,13 @@ export interface ConsolidationBatch {
     };
     backlogCount: number;
     alreadyReferencedCount: number;
+    cursor: string | null;
+    nextCursor: string | null;
+    remainingAfterBatch: number;
     evidence: PathmarkRecord[];
     sessionIds: string[];
 }
 export declare function prepareConsolidationBatch(store: PathmarkStore, options?: ConsolidationOptions): Promise<ConsolidationBatch>;
 export declare function consolidateMemory(store: PathmarkStore, config: PathmarkConfig, options?: ConsolidationOptions): Promise<Record<string, unknown>>;
 export declare function consolidationNudge(batch: ConsolidationBatch, minimumEvidence: number): string;
+export declare function isConsolidationEvidence(record: PathmarkRecord): boolean;

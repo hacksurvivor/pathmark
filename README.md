@@ -22,6 +22,14 @@ Pathmark v0.1.12 turns captured history into proactively useful, auditable inten
 
 See the [v0.1.12 release notes](docs/releases/v0.1.12.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
 
+### In development
+
+- multi-intent questions retrieve one approved conclusion per topic before filling remaining results;
+- unscoped chat never falls back to raw records from another workspace, and instruction-shaped captures are excluded from raw fallback;
+- client-mode chat returns a safe extractive answer for approved conclusions and a `recallId` for explicit relevance feedback;
+- `rate_recall` / `pathmark feedback` turn user labels into measured precision instead of an inferred score;
+- consolidation batches expose `nextCursor` and eligible-backlog counts so large scoped histories can be reviewed progressively without auto-approval.
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/hacksurvivor/pathmark/main/assets/pathmark-hero.png" alt="Pathmark local intent and provenance shared by Codex, Claude Code, opencode, and Gemini CLI" width="100%">
 </p>
@@ -55,7 +63,7 @@ You do not work in one tool. You ask Codex to patch, Claude Code to review, open
 Pathmark gives those tools one place to read and write intent and evidence:
 
 - One local JSONL store across harnesses.
-- Standard MCP tools include `remember`, `search_memory`, `recall_memory`, `session_trace`, `consolidate_memory`, `audit_memory`, and conclusion-first `chat` / `ask_memory`.
+- Standard MCP tools include `remember`, `search_memory`, `recall_memory`, `session_trace`, `rate_recall`, `consolidate_memory`, `audit_memory`, and conclusion-first `chat` / `ask_memory`.
 - Client-side synthesis by default, so your coding agent reads the context and answers.
 - Optional Codex CLI, local command, and OpenAI-compatible synthesis modes.
 - Plain files you can inspect, back up, delete, or migrate.
@@ -100,6 +108,7 @@ Pathmark exposes these MCP tools:
 | `search_memory` | Search memories and conclusions. |
 | `recall_memory` | Transparent recall: returns context plus the exact memory IDs, timestamps, sources, matches, tags, and previews used. Accepts optional `tags`, exact `ids`, and compact `includeRecords: false` output. |
 | `session_trace` | Return a bounded chronological audit trail for one session: prompts, exact injected memory IDs, redacted tool inputs/results, and answers. |
+| `rate_recall` | Label exact IDs from a `chat` / `ask_memory` recall as relevant or irrelevant so audit precision is measured. |
 | `get_context` | Return compact context for a task or question. |
 | `list_conclusions` | List approved saved conclusions. |
 | `list_pending_conclusions` | Review bounded, paginated pending conclusion proposals. |
@@ -116,8 +125,8 @@ Pathmark exposes these MCP tools:
 | `compact_memory` | Preview or apply deduplication, retention, and physical cleanup with an automatic backup. |
 | `backup_memory` | Create a point-in-time canonical JSONL backup. |
 | `export_memory` | Export a scoped mergeable JSONL bundle, optionally encrypted. |
-| `ask_memory` | Return relevant context, or synthesize with `PATHMARK_CHAT_COMMAND` if configured. |
-| `chat` | Chat-compatible alias for `ask_memory`; returns the retrieved context so the client can show what was used. |
+| `ask_memory` | Return an approved-conclusion answer or scoped raw context, exact provenance, and a recall ID for feedback. |
+| `chat` | Chat-compatible alias for `ask_memory`, including multi-intent conclusion retrieval and explicit abstention. |
 | `get_config` | Show local store configuration. |
 
 ## Quick Start
@@ -416,7 +425,9 @@ Maintenance commands preview destructive changes unless `--apply` is present:
 ```bash
 pathmark chat "What did we decide about release signing?" --namespace=my-project
 pathmark consolidate --namespace=my-project
+pathmark consolidate --namespace=my-project --cursor=LAST_RECORD_ID
 PATHMARK_SYNTHESIS_PROVIDER=codex pathmark consolidate --namespace=my-project --apply
+pathmark feedback --recall-id=RECALL_ID --relevant=MEMORY_ID --irrelevant=OTHER_ID
 pathmark audit --days=30
 pathmark audit --namespace=my-project --days=90
 pathmark doctor
@@ -426,13 +437,15 @@ pathmark purge --namespace=old-client
 pathmark purge --namespace=old-client --apply
 ```
 
-`pathmark chat` and the MCP `chat` / `ask_memory` tools search approved conclusions first, then fall back to explicitly requested raw evidence. In the default `client` synthesis mode, the MCP host agent answers from the returned context. Set `PATHMARK_SYNTHESIS_PROVIDER=codex`, `command`, or `openai-compatible` when the CLI itself should produce the answer.
+`pathmark chat` and the MCP `chat` / `ask_memory` tools search approved conclusions first. Multi-intent questions can return separate conclusions for separate clauses. In default client mode, approved conclusions produce a safe extractive `answer`; a configured `codex`, `command`, or `openai-compatible` provider can synthesize richer prose. Raw fallback requires an explicit scope (`--namespace` / tags) or `kind: memory`, preventing unscoped cross-workspace history from entering chat.
 
-`pathmark consolidate` is preview-first. With default client synthesis it returns the bounded evidence and exact instructions for the host agent, which can call `create_conclusion` with supporting `evidenceIds`. With a configured server-side synthesis provider, it previews structured candidates; `--apply` stages them as pending conclusions for `approve_conclusion` or `reject_conclusion`. It never auto-approves extracted intent.
+Every non-empty chat recall returns a `recallId`. Use MCP `rate_recall` or `pathmark feedback` with exact recalled IDs to label relevance. `pathmark audit` reports `precision.status: "labeled"`, measured precision, and label coverage once feedback exists.
+
+`pathmark consolidate` is preview-first. With default client synthesis it returns the bounded evidence and exact instructions for the host agent, which can call `create_conclusion` with supporting `evidenceIds`. When more eligible evidence remains, the result includes `nextCursor` and `remainingAfterBatch`; pass the cursor to review the next stable page. With a configured server-side synthesis provider, it previews structured candidates; `--apply` stages them as pending conclusions for `approve_conclusion` or `reject_conclusion`. It never auto-approves extracted intent.
 
 Applied compaction and purge create a backup before replacing the canonical file. Soft deletion remains available through `delete_memory`; hard purge physically removes selected records from JSONL and rebuilds the derived index.
 
-`pathmark audit` is read-only. It reports inventory, capture-to-recall ratio, records not recalled within the selected activity window, recall age, exact duplicates, stale raw hits, and scope/missing-reference signals. Pathmark does not claim retrieval precision without relevance labels; the audit returns `precision.status: "unlabeled"` until a trustworthy feedback path exists.
+`pathmark audit` is read-only. It separates all raw records from consolidation-eligible user/assistant evidence, then reports capture-to-recall ratio, actionable synthesis backlog, recall age, exact duplicates, stale raw hits, and scope/missing-reference signals. Precision remains `unlabeled` until explicit feedback exists; Pathmark never substitutes a heuristic for a user label.
 
 Use scoped exports and merge imports as the transport-neutral sync layer:
 
