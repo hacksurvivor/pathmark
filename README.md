@@ -9,18 +9,16 @@ Carry intent across agents without turning stale code facts into hidden memory.
   <a href="https://scorecard.dev/viewer/?uri=github.com/hacksurvivor/pathmark"><img src="https://api.scorecard.dev/projects/github.com/hacksurvivor/pathmark/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
-## What's New — v0.1.13
+## What's New — v0.1.14
 
-Pathmark v0.1.13 closes the loop between proactive recall, conversational answers, and measurable memory quality:
+Pathmark v0.1.14 fixes scoped conversational recall for conclusions created from workspace evidence:
 
-- multi-intent questions retrieve a relevant approved conclusion for each topic instead of collapsing into one noisy match;
-- unscoped chat no longer falls back to raw cross-workspace history, and internal instruction captures are excluded from proactive recall and consolidation;
-- client-mode `chat` / `ask_memory` return safe answers from approved conclusions plus an exact `recallId` for matched recalls;
-- MCP `rate_recall` and CLI `pathmark feedback` turn explicit relevance labels into measured precision and label coverage;
-- consolidation exposes stable cursors and eligible-backlog counts so large histories can be reviewed progressively without automatic approval;
-- audit separates consolidation-eligible evidence from intentionally excluded raw records, making coverage numbers actionable.
+- `chat` and `ask_memory` can recover an approved conclusion when the requested `workspace:`, `project:`, or `namespace:` tag is shared by all of its cited evidence, even if the conclusion itself carries only a legacy project tag;
+- direct conclusion tags remain authoritative, while missing, foreign, mixed-scope, or conclusion-as-evidence provenance cannot grant scope;
+- exhaustive scoped candidate selection prevents relevant conclusions from disappearing behind unrelated global search results;
+- batched provenance reads keep scoped chat responsive as evidence sets grow.
 
-See the [v0.1.13 release notes](docs/releases/v0.1.13.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
+See the [v0.1.14 release notes](docs/releases/v0.1.14.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/hacksurvivor/pathmark/main/assets/pathmark-hero.png" alt="Pathmark local intent and provenance shared by Codex, Claude Code, opencode, and Gemini CLI" width="100%">
