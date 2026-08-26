@@ -22,6 +22,15 @@ function traceEntry(record, includeOutputs) {
             queryHash: record.activity.queryHash,
         };
     }
+    if (record.activity?.type === "recall_feedback") {
+        return {
+            ...base,
+            type: "recall_feedback",
+            recallId: record.activity.recallId,
+            relevantIds: record.activity.relevantIds,
+            irrelevantIds: record.activity.irrelevantIds,
+        };
+    }
     if (record.activity?.type === "tool") {
         return { ...base, type: "tool", summary: safeText(record.text, 500), ...publicToolActivity(record.activity, includeOutputs) };
     }
@@ -52,11 +61,13 @@ function traceOrder(record) {
         return 0;
     if (record.activity?.type === "recall")
         return 1;
-    if (record.activity?.type === "tool" || record.tags.includes("role-tool"))
+    if (record.activity?.type === "recall_feedback")
         return 2;
-    if (record.tags.includes("role-assistant"))
+    if (record.activity?.type === "tool" || record.tags.includes("role-tool"))
         return 3;
-    return 4;
+    if (record.tags.includes("role-assistant"))
+        return 4;
+    return 5;
 }
 function safeText(text, limit) {
     const safe = redactSecrets(text).text;

@@ -1,4 +1,5 @@
 import { conclusionApprovalStatus } from "./approval.js";
+import { isConsolidationEvidence } from "./consolidate.js";
 import type { PathmarkStore } from "./store.js";
 import type { PathmarkRecord } from "./types.js";
 
@@ -25,12 +26,17 @@ export async function auditMemory(store: PathmarkStore, options: MemoryAuditOpti
   const allById = new Map(allActive.map((record) => [record.id, record]));
   const eligible = selected.filter((record) => !isActivity(record));
   const rawEvidence = eligible.filter((record) => record.kind === "memory");
+  const consolidationEvidence = rawEvidence.filter(isConsolidationEvidence);
+  const consolidationEvidenceIds = new Set(consolidationEvidence.map((record) => record.id));
   const conclusions = eligible.filter((record) => record.kind === "conclusion");
   const synthesisEligibleConclusions = conclusions.filter(
     (record) => conclusionApprovalStatus(record) !== "rejected" && (record.evidenceIds?.length ?? 0) > 0,
   );
   const evidenceReferences = synthesisEligibleConclusions.flatMap((record) => record.evidenceIds ?? []);
   const referencedEvidenceIds = new Set(evidenceReferences.filter((id) => selectedIds.has(id)));
+  const referencedConsolidationEvidenceIds = new Set(
+    evidenceReferences.filter((id) => consolidationEvidenceIds.has(id)),
+  );
   const recallEvents = selected
     .filter((record) => record.activity?.type === "recall")
     .filter((record) => inWindow(record.createdAt, windowStartMs))
@@ -57,6 +63,14 @@ export async function auditMemory(store: PathmarkStore, options: MemoryAuditOpti
   const duplicateRecords = countExactDuplicates(eligible);
   const firstRecallAt = recallEvents.at(0)?.createdAt ?? null;
   const lastRecallAt = recallEvents.at(-1)?.createdAt ?? null;
+  const feedback = recallFeedback(selected, allById, selectedIds, windowStartMs);
+  const unprocessedEligibleEvidenceRecords = consolidationEvidence.filter(
+    (record) => !referencedConsolidationEvidenceIds.has(record.id),
+  ).length;
+  const eligibleEvidenceConclusionCoverage = ratio(
+    referencedConsolidationEvidenceIds.size,
+    consolidationEvidence.length,
+  );
 
   return {
     generatedAt: now.toISOString(),
@@ -81,6 +95,8 @@ export async function auditMemory(store: PathmarkStore, options: MemoryAuditOpti
       pendingConclusions: conclusions.filter((record) => conclusionApprovalStatus(record) === "pending").length,
       rejectedConclusions: conclusions.filter((record) => conclusionApprovalStatus(record) === "rejected").length,
       evidenceBackedConclusions: synthesisEligibleConclusions.length,
+      consolidationEligibleRawEvidenceRecords: consolidationEvidence.length,
+      excludedFromConsolidationRecords: rawEvidence.length - consolidationEvidence.length,
       exactDuplicateRecords: duplicateRecords,
       exactDuplicateRate: ratio(duplicateRecords, eligible.length),
     },
@@ -111,15 +127,69 @@ export async function auditMemory(store: PathmarkStore, options: MemoryAuditOpti
       evidenceReferences: evidenceReferences.length,
       uniqueEvidenceReferenced: referencedEvidenceIds.size,
       missingEvidenceReferences: evidenceReferences.filter((id) => !allById.has(id)).length,
-      unprocessedRawEvidenceRecords: rawEvidence.filter((record) => !referencedEvidenceIds.has(record.id)).length,
-      rawEvidenceConclusionCoverage: ratio(referencedEvidenceIds.size, rawEvidence.length),
+      unprocessedRawEvidenceRecords: unprocessedEligibleEvidenceRecords,
+      unprocessedEligibleEvidenceRecords,
+      rawEvidenceConclusionCoverage: eligibleEvidenceConclusionCoverage,
+      eligibleEvidenceConclusionCoverage,
     },
-    precision: {
-      status: "unlabeled",
-      value: null,
-      reason:
-        "Recall activity records which ids were injected, but no user relevance labels exist. Stale, duplicate, missing, and coverage signals are reported without pretending they are precision.",
-    },
+    precision:
+      feedback.labeledReferences > 0
+        ? {
+            status: "labeled",
+            value: ratio(feedback.relevantReferences, feedback.labeledReferences),
+            labeledRecallEvents: feedback.labeledRecallEvents,
+            labeledReferences: feedback.labeledReferences,
+            relevantReferences: feedback.relevantReferences,
+            irrelevantReferences: feedback.irrelevantReferences,
+            labelCoverage: ratio(feedback.labeledReferences, scopedReferences.length),
+          }
+        : {
+            status: "unlabeled",
+            value: null,
+            labeledRecallEvents: 0,
+            labeledReferences: 0,
+            relevantReferences: 0,
+            irrelevantReferences: 0,
+            labelCoverage: 0,
+            reason:
+              "Recall activity records which ids were injected, but no user relevance labels exist. Use rate_recall or pathmark feedback to label exact recalled ids.",
+          },
+  };
+}
+
+function recallFeedback(
+  selected: PathmarkRecord[],
+  allById: Map<string, PathmarkRecord>,
+  selectedIds: Set<string>,
+  windowStartMs: number | undefined,
+): {
+  labeledRecallEvents: number;
+  labeledReferences: number;
+  relevantReferences: number;
+  irrelevantReferences: number;
+} {
+  const labels = new Map<string, { recallId: string; relevant: boolean }>();
+  for (const record of selected
+    .filter((candidate) => candidate.activity?.type === "recall_feedback")
+    .filter((candidate) => inWindow(candidate.createdAt, windowStartMs))
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))) {
+    if (record.activity?.type !== "recall_feedback") continue;
+    const recall = allById.get(record.activity.recallId);
+    if (recall?.activity?.type !== "recall") continue;
+    const recalledIds = new Set(recall.activity.memoryIds);
+    for (const id of record.activity.relevantIds) {
+      if (recalledIds.has(id) && selectedIds.has(id)) labels.set(`${recall.id}\0${id}`, { recallId: recall.id, relevant: true });
+    }
+    for (const id of record.activity.irrelevantIds) {
+      if (recalledIds.has(id) && selectedIds.has(id)) labels.set(`${recall.id}\0${id}`, { recallId: recall.id, relevant: false });
+    }
+  }
+  const values = [...labels.values()];
+  return {
+    labeledRecallEvents: new Set(values.map((label) => label.recallId)).size,
+    labeledReferences: values.length,
+    relevantReferences: values.filter((label) => label.relevant).length,
+    irrelevantReferences: values.filter((label) => !label.relevant).length,
   };
 }
 

@@ -20,7 +20,7 @@ try {
   delete process.env.PATHMARK_CODEX_RAW_RECALL_LIMIT;
 
   const store = new PathmarkStore(loadConfig());
-  const scopedTags = ["workspace:audit", "codex-raw"];
+  const scopedTags = ["workspace:audit", "codex-raw", "role-user"];
   await store.addRecords([
     {
       id: "fresh-evidence",
@@ -45,6 +45,14 @@ try {
       tags: scopedTags,
       source: "audit-test",
       createdAt: "2026-06-01T00:00:00.000Z",
+    },
+    {
+      id: "internal-instruction",
+      kind: "memory",
+      text: "You are an expert assistant that must rewrite memory records.",
+      tags: scopedTags,
+      source: "audit-test",
+      createdAt: "2026-08-22T00:00:00.000Z",
     },
     {
       id: "approved-intent",
@@ -78,9 +86,11 @@ try {
     now: new Date("2026-08-25T12:00:00.000Z"),
   });
   assert.deepEqual(audit.scope, { tags: ["workspace:audit"] });
-  assert.equal(audit.inventory.activeRecords, 5);
-  assert.equal(audit.inventory.rawEvidenceRecords, 3);
+  assert.equal(audit.inventory.activeRecords, 6);
+  assert.equal(audit.inventory.rawEvidenceRecords, 4);
   assert.equal(audit.inventory.activityRecords, 1);
+  assert.equal(audit.inventory.consolidationEligibleRawEvidenceRecords, 3);
+  assert.equal(audit.inventory.excludedFromConsolidationRecords, 1);
   assert.equal(audit.inventory.approvedConclusions, 1);
   assert.equal(audit.inventory.exactDuplicateRecords, 1);
   assert.equal(audit.recall.events, 1);
@@ -88,17 +98,45 @@ try {
   assert.equal(audit.recall.scopedReferences, 3);
   assert.equal(audit.recall.missingReferences, 1);
   assert.equal(audit.recall.uniqueRecalledRecords, 3);
-  assert.equal(audit.recall.notRecalledInWindow, 1);
-  assert.equal(audit.recall.recordsCreatedInWindow, 3);
+  assert.equal(audit.recall.notRecalledInWindow, 2);
+  assert.equal(audit.recall.recordsCreatedInWindow, 4);
   assert.equal(audit.recall.createdAndRecalledInWindow, 2);
   assert.equal(audit.recall.staleRawReferences, 1);
   assert.equal(audit.recall.staleRawHitRate, 0.5);
   assert.equal(audit.inventory.evidenceBackedConclusions, 1);
   assert.equal(audit.synthesis.uniqueEvidenceReferenced, 1);
   assert.equal(audit.synthesis.unprocessedRawEvidenceRecords, 2);
+  assert.equal(audit.synthesis.unprocessedEligibleEvidenceRecords, 2);
   assert.equal(audit.synthesis.rawEvidenceConclusionCoverage, 0.3333);
+  assert.equal(audit.synthesis.eligibleEvidenceConclusionCoverage, 0.3333);
   assert.equal(audit.precision.status, "unlabeled");
   assert.equal(audit.precision.value, null);
+
+  await store.add({
+    id: "recall-feedback",
+    kind: "memory",
+    text: "Pathmark recall feedback: 2 relevant, 1 irrelevant.",
+    tags: ["workspace:audit", "pathmark-activity", "activity-recall-feedback", "role-tool"],
+    source: "audit-test",
+    createdAt: "2026-08-25T01:00:00.000Z",
+    activity: {
+      type: "recall_feedback",
+      recallId: "recall-event",
+      relevantIds: ["fresh-evidence", "approved-intent"],
+      irrelevantIds: ["stale-evidence"],
+    },
+  });
+  const labeled = await auditMemory(store, {
+    days: 30,
+    tags: ["workspace:audit"],
+    rawRecallDays: 30,
+    now: new Date("2026-08-25T12:00:00.000Z"),
+  });
+  assert.equal(labeled.precision.status, "labeled");
+  assert.equal(labeled.precision.value, 0.6667);
+  assert.equal(labeled.precision.labeledRecallEvents, 1);
+  assert.equal(labeled.precision.labeledReferences, 3);
+  assert.equal(labeled.precision.labelCoverage, 1);
 
   console.log("Memory audit tests passed");
 } finally {

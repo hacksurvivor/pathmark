@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { conclusionApprovalStatus } from "./approval.js";
 import { synthesizeWithCommand } from "./chat.js";
-import { isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "./memory-safety.js";
+import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "./memory-safety.js";
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_DAYS = 90;
 const DEFAULT_EVIDENCE_LIMIT = 24;
@@ -28,9 +28,19 @@ export async function prepareConsolidationBatch(store, options = {}) {
         const createdAt = Date.parse(record.createdAt);
         return Number.isFinite(createdAt) && createdAt >= cutoff;
     })
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+        .sort(compareEvidenceNewestFirst);
     const backlog = eligible.filter((record) => !referencedIds.has(record.id));
-    const evidence = backlog.slice(0, evidenceLimit).reverse().map(boundedEvidenceRecord);
+    const requestedCursor = options.cursor?.trim() || undefined;
+    const cursorRecord = requestedCursor ? eligible.find((record) => record.id === requestedCursor) : undefined;
+    if (requestedCursor && !cursorRecord)
+        throw new Error(`Consolidation cursor not found in the eligible evidence: ${requestedCursor}`);
+    const remainingBacklog = cursorRecord
+        ? backlog.filter((record) => compareEvidenceNewestFirst(record, cursorRecord) > 0)
+        : backlog;
+    const page = remainingBacklog.slice(0, evidenceLimit);
+    const evidence = [...page].reverse().map(boundedEvidenceRecord);
+    const remainingAfterBatch = Math.max(0, remainingBacklog.length - page.length);
+    const nextCursor = remainingAfterBatch > 0 ? page.at(-1)?.id ?? null : null;
     const batchId = evidence.length > 0
         ? createHash("sha256").update(evidence.map((record) => record.id).join("\0")).digest("hex").slice(0, 16)
         : null;
@@ -39,6 +49,9 @@ export async function prepareConsolidationBatch(store, options = {}) {
         scope: { tags },
         backlogCount: backlog.length,
         alreadyReferencedCount: eligible.length - backlog.length,
+        cursor: requestedCursor ?? null,
+        nextCursor,
+        remainingAfterBatch,
         evidence,
         sessionIds: [...new Set(evidence.flatMap(sessionTags).map((tag) => tag.slice("session:".length)))],
     };
@@ -51,6 +64,9 @@ export async function consolidateMemory(store, config, options = {}) {
             scope: { tags: [] },
             backlogCount: 0,
             alreadyReferencedCount: 0,
+            cursor: options.cursor?.trim() || null,
+            nextCursor: null,
+            remainingAfterBatch: 0,
             evidence: [],
             sessionIds: [],
             proposals: [],
@@ -76,7 +92,9 @@ export async function consolidateMemory(store, config, options = {}) {
             proposals: [],
             staged: [],
             instructions,
-            nextStep: "The MCP host should extract high-confidence candidates from this evidence, then call create_conclusion with the supporting evidenceIds. Nothing is auto-approved.",
+            nextStep: batch.nextCursor
+                ? `The MCP host should extract high-confidence candidates with evidenceIds, then continue with cursor ${batch.nextCursor}. Nothing is auto-approved.`
+                : "The MCP host should extract high-confidence candidates from this evidence, then call create_conclusion with the supporting evidenceIds. Nothing is auto-approved.",
         };
     }
     const candidates = parseCandidates(answer, new Set(batch.evidence.map((record) => record.id)), maxProposals);
@@ -113,19 +131,14 @@ export function consolidationNudge(batch, minimumEvidence) {
         "</pathmark-consolidation>",
     ].join("\n");
 }
-function isConsolidationEvidence(record) {
+export function isConsolidationEvidence(record) {
     return (!record.activity &&
         !record.tags.includes("pathmark-activity") &&
         !record.tags.includes(QUARANTINED_MEMORY_TAG) &&
         (record.tags.includes("role-user") || record.tags.includes("role-assistant")) &&
-        !isInternalHarnessPrompt(record.text) &&
+        !isInternalInstructionText(record.text) &&
+        !record.text.trimStart().startsWith("<codex_delegation>") &&
         !isUnsafeMemoryText(record.text));
-}
-function isInternalHarnessPrompt(text) {
-    const normalized = text.trimStart();
-    return (normalized.startsWith("# Overview\n\nGenerate 0 to 3 hyperpersonalized suggestions") ||
-        normalized.startsWith("# Response annotations:") ||
-        normalized.startsWith("<codex_delegation>"));
 }
 function boundedEvidenceRecord(record) {
     const text = record.text
@@ -142,6 +155,9 @@ function evidenceSearchResult(record) {
 }
 function sessionTags(record) {
     return record.tags.filter((tag) => tag.startsWith("session:"));
+}
+function compareEvidenceNewestFirst(left, right) {
+    return right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id);
 }
 function consolidationInstructions(maxProposals, evidenceIds) {
     return [

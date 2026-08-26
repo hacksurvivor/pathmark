@@ -68,6 +68,7 @@ try {
     "consolidate_memory",
     "get_memory_snapshot",
     "audit_memory",
+    "rate_recall",
   ]) {
     assert.equal(byName.has(toolName), true, `installed canary missing ${toolName}`);
   }

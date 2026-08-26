@@ -4,10 +4,12 @@ import { z } from "zod";
 import { auditMemory } from "./audit.js";
 import { consolidateMemory } from "./consolidate.js";
 import { loadConfig } from "./config.js";
+import { recordRecallFeedback } from "./feedback.js";
 import { jsonText, publicConfig, summarizeRecords, summarizeSearch, usedMemories } from "./format.js";
+import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "./memory-safety.js";
 import { answerMemory } from "./memory-query.js";
 import { redactSecrets } from "./redact.js";
-import { selectRelevantResults } from "./relevance.js";
+import { selectRelevantResultsByIntent } from "./relevance.js";
 import { namespaceTag, PathmarkStore } from "./store.js";
 import { sessionTrace } from "./session-trace.js";
 import { buildMemorySnapshot } from "./snapshot.js";
@@ -19,7 +21,7 @@ export async function runMcpServer(): Promise<void> {
 
   const server = new McpServer({
     name: "pathmark",
-    version: "0.1.12",
+    version: "0.1.13",
   });
 
   server.registerTool(
@@ -213,6 +215,24 @@ export async function runMcpServer(): Promise<void> {
       },
     },
     async ({ sessionId, limit, includeOutputs }) => jsonText(await sessionTrace(store, sessionId, { limit, includeOutputs })),
+  );
+
+  server.registerTool(
+    "rate_recall",
+    {
+      title: "Rate recalled memories",
+      description:
+        "Attach explicit relevance labels to one exact Pathmark recall so audit_memory can report measured precision.",
+      inputSchema: {
+        recallId: z.string().min(1).describe("The recallId returned by chat or ask_memory."),
+        relevantIds: z.array(z.string().min(1)).max(30).optional(),
+        irrelevantIds: z.array(z.string().min(1)).max(30).optional(),
+        note: z.string().max(1_000).optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ recallId, relevantIds, irrelevantIds, note }) =>
+      jsonText(await recordRecallFeedback(store, config, { recallId, relevantIds, irrelevantIds, note })),
   );
 
   server.registerTool(
@@ -453,6 +473,7 @@ export async function runMcpServer(): Promise<void> {
       inputSchema: {
         days: z.number().int().min(0).max(3_650).optional(),
         evidenceLimit: z.number().int().min(1).max(100).optional(),
+        cursor: z.string().min(1).optional().describe("Continue after the last record id from a prior bounded batch."),
         maxProposals: z.number().int().min(1).max(10).optional(),
         tags: z.array(z.string()).optional(),
         namespace: z.string().min(1).optional(),
@@ -460,11 +481,12 @@ export async function runMcpServer(): Promise<void> {
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ days, evidenceLimit, maxProposals, tags, namespace, apply }) =>
+    async ({ days, evidenceLimit, cursor, maxProposals, tags, namespace, apply }) =>
       jsonText(
         await consolidateMemory(store, config, {
           days,
           evidenceLimit,
+          cursor,
           maxProposals,
           tags: scopedTags(tags, namespace ?? config.defaultNamespace),
           apply,
@@ -555,7 +577,7 @@ export async function runMcpServer(): Promise<void> {
     {
       title: "Ask memory",
       description:
-        "Ask approved conclusions first, then explicit raw evidence fallback. Optionally synthesize server-side; otherwise return context for the MCP host agent.",
+        "Ask approved conclusions first, then scoped or explicitly requested raw evidence. Returns an answer, exact provenance, and a recallId for feedback.",
       inputSchema: {
         question: z.string().min(1),
         limit: z.number().int().min(1).max(30).optional(),
@@ -572,7 +594,7 @@ export async function runMcpServer(): Promise<void> {
     {
       title: "Chat",
       description:
-        "Chat with Pathmark using approved conclusions first and raw evidence only as fallback. Returns exact used-memory provenance.",
+        "Chat with Pathmark using approved conclusions first and only scoped or explicitly requested raw fallback. Returns an answer, provenance, and recallId.",
       inputSchema: {
         question: z.string().min(1),
         limit: z.number().int().min(1).max(30).optional(),
@@ -612,8 +634,14 @@ export async function runMcpServer(): Promise<void> {
     const selectedLimit = limit ?? config.maxSearchResults;
     const candidateLimit = query.trim() ? Math.min(50, Math.max(20, selectedLimit * 4)) : selectedLimit;
     const candidates = (await store.search({ query, limit: candidateLimit, tags, kind }))
-      .filter((result) => !result.record.tags.includes("pathmark-activity"));
-    return query.trim() ? selectRelevantResults(candidates, query, selectedLimit) : candidates.slice(0, selectedLimit);
+      .filter(
+        (result) =>
+          !result.record.tags.includes("pathmark-activity") &&
+          !result.record.tags.includes(QUARANTINED_MEMORY_TAG) &&
+          !isUnsafeMemoryText(result.record.text) &&
+          (result.record.kind !== "memory" || !isInternalInstructionText(result.record.text)),
+      );
+    return query.trim() ? selectRelevantResultsByIntent(candidates, query, selectedLimit) : candidates.slice(0, selectedLimit);
   }
 }
 

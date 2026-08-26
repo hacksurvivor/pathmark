@@ -7,9 +7,9 @@ import {
 } from "../consolidate.js";
 import { loadConfig } from "../config.js";
 import { deterministicId } from "../ids.js";
-import { isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "../memory-safety.js";
+import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "../memory-safety.js";
 import { redactSecrets } from "../redact.js";
-import { informativeSearchTerms, selectRelevantResults } from "../relevance.js";
+import { informativeSearchTerms, selectRelevantResultsByIntent } from "../relevance.js";
 import { PathmarkStore } from "../store.js";
 import { buildMemorySnapshot } from "../snapshot.js";
 import { tokenizeSearchText } from "../tokenize.js";
@@ -225,6 +225,7 @@ function selectPromptResults(
         result.record.tags.includes("pathmark-activity") ||
         result.record.tags.includes(QUARANTINED_MEMORY_TAG) ||
         isUnsafeMemoryText(result.record.text) ||
+        (result.record.kind === "memory" && isInternalInstructionText(result.record.text)) ||
         (result.record.kind === "memory" && !isRawRecallEligible(result, options.rawRecallDays))
       ) {
         continue;
@@ -236,7 +237,7 @@ function selectPromptResults(
   const ranked = [...merged.values()].sort(
     (a, b) => b.score - a.score || b.record.createdAt.localeCompare(a.record.createdAt),
   );
-  return selectRelevantResults(ranked, promptText, options.limit, options.relevance);
+  return selectRelevantResultsByIntent(ranked, promptText, options.limit, options.relevance);
 }
 
 function isRawRecallEligible(result: SearchResult, rawRecallDays: number | undefined): boolean {
@@ -324,7 +325,9 @@ function activityRecord(input: {
   if (input.redacted) tags.push("redacted");
   const stablePart = input.activity.type === "tool"
     ? input.activity.callId ?? `${input.at}:${input.activity.commandHash ?? input.activity.inputHash ?? input.text}`
-    : `${input.at}:${input.activity.queryHash}:${input.activity.memoryIds.join(",")}`;
+    : input.activity.type === "recall"
+      ? `${input.at}:${input.activity.queryHash}:${input.activity.memoryIds.join(",")}`
+      : `${input.at}:${input.activity.recallId}:${input.activity.relevantIds.join(",")}:${input.activity.irrelevantIds.join(",")}`;
   return {
     id: deterministicId(["codex-activity", input.sessionId, input.activity.type, stablePart]),
     kind: "memory",

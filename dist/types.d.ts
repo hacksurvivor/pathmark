@@ -13,12 +13,19 @@ export interface PathmarkRecordVersion {
     source: string;
     updatedAt: string;
 }
-export type PathmarkActivity = PathmarkRecallActivity | PathmarkToolActivity;
+export type PathmarkActivity = PathmarkRecallActivity | PathmarkRecallFeedbackActivity | PathmarkToolActivity;
 export interface PathmarkRecallActivity {
     type: "recall";
     queryHash: string;
     memoryIds: string[];
     memoryCount: number;
+}
+export interface PathmarkRecallFeedbackActivity {
+    type: "recall_feedback";
+    recallId: string;
+    relevantIds: string[];
+    irrelevantIds: string[];
+    note?: string;
 }
 export interface PathmarkToolActivity {
     type: "tool";
