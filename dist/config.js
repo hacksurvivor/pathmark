@@ -40,7 +40,7 @@ export function loadConfig() {
         chatTimeoutMs: Number.parseInt(process.env.PATHMARK_CHAT_TIMEOUT_MS ?? "120000", 10),
         maxSearchResults: Number.parseInt(process.env.PATHMARK_MAX_SEARCH_RESULTS ?? "12", 10),
         codexProactiveRecall: envFlag("PATHMARK_CODEX_PROACTIVE_RECALL", true),
-        codexVisibleRecall: envFlag("PATHMARK_CODEX_VISIBLE_RECALL", true),
+        codexVisibleRecall: envFlag("PATHMARK_CODEX_VISIBLE_RECALL", false),
         codexCaptureToolOutputs: envFlag("PATHMARK_CODEX_CAPTURE_TOOL_OUTPUTS", false),
         codexMemorySnapshot: envFlag("PATHMARK_CODEX_MEMORY_SNAPSHOT", true),
         snapshotCharLimit: Math.max(500, Math.min(envNonNegativeInt("PATHMARK_SNAPSHOT_CHARS", 4_000), 12_000)),

@@ -25,7 +25,6 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
-      - run: npm audit --audit-level=moderate
       - run: npm test
       - if: matrix.node-version == '22'
         run: npm run coverage

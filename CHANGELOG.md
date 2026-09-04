@@ -8,6 +8,7 @@ No unreleased changes.
 
 ## Releases
 
+- [v0.1.15](docs/releases/v0.1.15.md) — proactive Codex memory remains automatic but is quiet by default, with visible recall available as an explicit audit mode and vulnerable transitive dependencies updated.
 - [v0.1.14](docs/releases/v0.1.14.md) — workspace, project, and namespace filters now recover approved conclusions through their shared evidence scope without leaking foreign or mixed-scope memory.
 - [v0.1.13](docs/releases/v0.1.13.md) — multi-intent proactive recall, safe conversational answers, explicit recall feedback, and progressive consolidation.
 - [v0.1.12](docs/releases/v0.1.12.md) — official MCP Registry compatibility and release-time metadata validation.

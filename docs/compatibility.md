@@ -126,7 +126,7 @@ pathmark codex install --replace-legacy-hooks
 
 This removes old compatible hook commands from Codex without deleting memory files.
 
-Codex hooks inject memory automatically at session start/resume and before non-trivial prompts. Prompt-time recall is scoped to the current workspace or session, filters low-relevance and near-duplicate results, and only injects matching memories. When matching memory is found, Pathmark asks Codex to call scoped visible recall with the exact pre-capture memory IDs, so the UI shows the original `usedMemories` rather than the newly saved prompt. Automatic visible recall also uses `includeRecords: false` to avoid duplicating full text. You can call it directly without `ids` for a fresh search:
+Codex hooks inject memory automatically at session start/resume and before non-trivial prompts. Prompt-time recall is scoped to the current workspace or session, filters low-relevance and near-duplicate results, and only injects matching memories. This proactive context is quiet by default: it does not add a raw `recall_memory` result to the conversation. Set `PATHMARK_CODEX_VISIBLE_RECALL=on` for audit/debug sessions; Pathmark then asks Codex to call scoped visible recall with the exact pre-capture memory IDs, using `includeRecords: false` to avoid duplicating full text. You can also call it directly without `ids` for a fresh search:
 
 ```text
 mcp__pathmark__recall_memory
