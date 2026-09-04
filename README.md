@@ -265,8 +265,8 @@ The Codex adapter is proactive by default:
 - raw fallback records must be within the separate automatic-recall horizon, 30 days by default; the full raw archive remains available to explicit `search_memory` and `recall_memory` calls;
 - raw cross-project history is never injected automatically; promote durable cross-project intent through the approval workflow;
 - broad cross-project history remains available through explicit `search_memory` / `recall_memory` calls without silently entering every prompt;
-- when matching memory is found, Codex receives an instruction to call `recall_memory` with the exact pre-capture result IDs and workspace tag, so the UI cannot mistake the newly saved prompt for previously used memory;
-- prompt context applies relevance and near-duplicate filtering before injection, and automatic visible recall omits the redundant full `records` copy;
+- matching memory is injected quietly by default, without adding a raw `recall_memory` tool result to the conversation;
+- set `PATHMARK_CODEX_VISIBLE_RECALL=on` when debugging or auditing to make Codex call `recall_memory` with the exact pre-capture result IDs and workspace tag; this explicit mode omits the redundant full `records` copy;
 - legacy transport envelopes and assistant progress updates are excluded from session-start and proactive relevance results, while realtime delegation envelopes retain only their current `<input>` payload;
 - records containing Pathmark boundary escapes, instruction-override patterns, or invisible Unicode controls are tagged `memory-quarantined` and excluded from automatic recall; injected previews are escaped and explicitly treated as untrusted historical data;
 - no matching memory means no extra context is injected.
@@ -276,7 +276,7 @@ Durable extraction is approval-gated by default. `create_conclusion` creates a p
 The session snapshot is generated from the same canonical store rather than maintained as a second flat file. It is frozen in the session-start hook output; prompt-time scoped recall remains dynamic.
 
 Set `PATHMARK_CODEX_PROACTIVE_RECALL=off` if you want Codex hooks to capture memory but stop prompt-time recall.
-Set `PATHMARK_CODEX_VISIBLE_RECALL=off` if you want prompt-time recall without the visible `recall_memory` tool-call request.
+Set `PATHMARK_CODEX_VISIBLE_RECALL=on` only when you want an explicit audit/debug `recall_memory` tool call. Proactive prompt-time recall remains active when this is off.
 
 `recall_memory` is a point-in-time record of memory used before an answer. It intentionally does not include commands that run later. Use `session_trace` with the exact session ID to inspect the chronological prompt → injected memories → tools/results → final-answer trail. When explicitly enabled, output previews are capped at 2,000 characters and redacted before storage; hashes preserve correlation without storing output text by default. Upgrading an existing cursor migrates to final-answer-only parsing without duplicating previously captured user or final-answer turns. When the original transcript is available, exact legacy `phase: "commentary"` records are soft-deleted by timestamp and text during that migration.
 
@@ -303,7 +303,7 @@ pathmark codex uninstall
 | `PATHMARK_STORE_DIR` | `~/.pathmark/memory` | Directory for `memory.jsonl`. |
 | `PATHMARK_MAX_SEARCH_RESULTS` | `12` | Default search limit. |
 | `PATHMARK_CODEX_PROACTIVE_RECALL` | `on` | Automatically inject relevant Pathmark context before non-trivial Codex prompts. Use `off` to capture without prompt-time recall. |
-| `PATHMARK_CODEX_VISIBLE_RECALL` | `on` | Ask Codex to call `recall_memory` when prompt-time recall found context, so the UI shows the exact `usedMemories`. |
+| `PATHMARK_CODEX_VISIBLE_RECALL` | `off` | Opt into an audit/debug `recall_memory` tool call that exposes exact `usedMemories`. Proactive memory injection remains active when this is off. |
 | `PATHMARK_CODEX_CAPTURE_TOOL_OUTPUTS` | `off` | Store bounded redacted tool-output previews. Output hashes, status, duration, and exit codes remain available when this is off. |
 | `PATHMARK_CODEX_MEMORY_SNAPSHOT` | `on` | Generate a bounded approved-conclusion snapshot at Codex session start/resume. |
 | `PATHMARK_SNAPSHOT_CHARS` | `4000` | Character budget for generated snapshots; clamped to 500–12000. |

@@ -19,8 +19,29 @@ import { PathmarkStore } from "../dist/store.js";
 import { sessionTrace } from "../dist/session-trace.js";
 
 const temp = await mkdtemp(path.join(os.tmpdir(), "pathmark-codex-adapter-"));
+const initialVisibleRecall = process.env.PATHMARK_CODEX_VISIBLE_RECALL;
+delete process.env.PATHMARK_CODEX_VISIBLE_RECALL;
 
 try {
+  assert.equal(loadConfig().codexVisibleRecall, false);
+  createStore("quiet-visible-recall-default");
+  await prompt({
+    cwd: "/workspace/pathmark",
+    session_id: "quiet-default-source",
+    prompt: "Remember quiet proactive recall keeps the interface readable.",
+  });
+  const quietDefaultContext = await prompt({
+    cwd: "/workspace/pathmark",
+    session_id: "quiet-default-target",
+    prompt: "Continue with quiet proactive recall.",
+  });
+  assert.equal(quietDefaultContext.includes("quiet proactive recall keeps the interface readable"), true);
+  assert.equal(quietDefaultContext.includes("Visible recall request:"), false);
+  assert.equal(quietDefaultContext.includes("so the UI shows the exact usedMemories"), false);
+
+  process.env.PATHMARK_CODEX_VISIBLE_RECALL = "on";
+  assert.equal(loadConfig().codexVisibleRecall, true);
+
   assert.equal(deterministicId(["session", "user", "hello"]), deterministicId(["session", "user", "hello"]));
 
   const fakeOpenAiKey = ["sk", "fixture", "123456789"].join("-");
@@ -2272,6 +2293,7 @@ try {
 
   console.log("Codex adapter base tests passed");
 } finally {
+  restoreEnv("PATHMARK_CODEX_VISIBLE_RECALL", initialVisibleRecall);
   await rm(temp, { recursive: true, force: true });
 }
 
