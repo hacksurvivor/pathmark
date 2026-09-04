@@ -25,7 +25,14 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
-      - run: npm audit --audit-level=moderate
+      - name: Audit dependencies
+        timeout-minutes: 5
+        run: >-
+          npx --yes npm@11.6.0 audit --audit-level=moderate
+          --fetch-retries=2
+          --fetch-retry-mintimeout=5000
+          --fetch-retry-maxtimeout=30000
+          --fetch-timeout=60000
       - run: npm test
       - if: matrix.node-version == '22'
         run: npm run coverage
