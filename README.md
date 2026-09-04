@@ -9,16 +9,16 @@ Carry intent across agents without turning stale code facts into hidden memory.
   <a href="https://scorecard.dev/viewer/?uri=github.com/hacksurvivor/pathmark"><img src="https://api.scorecard.dev/projects/github.com/hacksurvivor/pathmark/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
-## What's New — v0.1.14
+## What's New — v0.1.15
 
-Pathmark v0.1.14 fixes scoped conversational recall for conclusions created from workspace evidence:
+Pathmark v0.1.15 keeps proactive memory useful without making the conversation noisy:
 
-- `chat` and `ask_memory` can recover an approved conclusion when the requested `workspace:`, `project:`, or `namespace:` tag is shared by all of its cited evidence, even if the conclusion itself carries only a legacy project tag;
-- direct conclusion tags remain authoritative, while missing, foreign, mixed-scope, or conclusion-as-evidence provenance cannot grant scope;
-- exhaustive scoped candidate selection prevents relevant conclusions from disappearing behind unrelated global search results;
-- batched provenance reads keep scoped chat responsive as evidence sets grow.
+- relevant memory is still injected automatically before Codex answers;
+- raw `recall_memory` tool output is now hidden by default, keeping the chat focused on the answer instead of memory plumbing;
+- `PATHMARK_CODEX_VISIBLE_RECALL=on` restores the explicit recall trace whenever you want to audit which records were used;
+- vulnerable transitive `fast-uri` and `qs` versions are replaced by patched releases in the published dependency lock.
 
-See the [v0.1.14 release notes](docs/releases/v0.1.14.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
+See the [v0.1.15 release notes](docs/releases/v0.1.15.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/hacksurvivor/pathmark/main/assets/pathmark-hero.png" alt="Pathmark local intent and provenance shared by Codex, Claude Code, opencode, and Gemini CLI" width="100%">
