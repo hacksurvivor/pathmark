@@ -24,6 +24,8 @@ It demonstrates a local-storage conflict, a compliant plan, changed consent, and
 
 This is an **unreleased development preview**, not functionality in the npm version shown below. See the [decision workflow](docs/decision-workflow.md), [pilot kit](docs/decision-pilot.md), and [validation report](docs/validation/README.md). The pilot must establish usefulness beyond a well-maintained instruction file.
 
+The [Scratchpad handoff](docs/scratchpad-handoff.md) now carries review notes, selections, artifact revisions, and hashes into scoped evidence. Decision checks detect changed or missing reviewed HTML before reusing that intent.
+
 ## What's New — v0.1.15
 
 Pathmark v0.1.15 keeps proactive memory useful without making the conversation noisy:

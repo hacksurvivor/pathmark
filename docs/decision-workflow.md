@@ -132,6 +132,8 @@ Multi-part questions allocate results per intent. Approved conclusions cover one
 
 ## Integration coverage
 
+- Scratchpad 0.4.0: [review handoff](scratchpad-handoff.md) imports revision-bound evidence and rechecks linked HTML hashes. Importing a reported approval never automatically approves a conclusion.
+
 - Codex hooks: automated capture, scoped startup context, prompt recall, and decision-workflow guidance; tested through actual hook entry points and fixture CLI processes.
 - Gemini portable hooks: tested with protocol fixtures; this change was not tested in an installed Gemini application.
 - Other MCP clients: share the decision tools; the two-client demo verifies independent MCP connections. This does not imply automatic capture or automatic checking in every advertised harness.

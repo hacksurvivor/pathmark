@@ -55,10 +55,21 @@ export function loadConfig() {
         activityRetentionDays: envNonNegativeInt("PATHMARK_ACTIVITY_RETENTION_DAYS", 30),
         activityMaxRecords: Math.min(envNonNegativeInt("PATHMARK_ACTIVITY_MAX_RECORDS", 5_000), 100_000),
         rerankCommand: process.env.PATHMARK_RERANK_COMMAND?.trim() || undefined,
+        artifactRoots: artifactRoots(),
         hybridCandidateLimit: Math.max(10, Math.min(envNonNegativeInt("PATHMARK_HYBRID_CANDIDATES", 500), 2_000)),
         retrievalTimeoutMs: envNonNegativeInt("PATHMARK_RETRIEVAL_TIMEOUT_MS", 30_000),
         exportEncryptionKey: process.env.PATHMARK_EXPORT_KEY,
     };
+}
+function artifactRoots() {
+    const raw = process.env.PATHMARK_ARTIFACT_ROOTS;
+    if (!raw?.trim())
+        return [];
+    const roots = JSON.parse(raw);
+    if (!Array.isArray(roots) || roots.length > 30 || roots.some((root) => typeof root !== "string" || !path.isAbsolute(root))) {
+        throw new Error("PATHMARK_ARTIFACT_ROOTS must be a JSON array of at most 30 absolute directories");
+    }
+    return roots;
 }
 function synthesisProvider() {
     const value = process.env.PATHMARK_SYNTHESIS_PROVIDER;

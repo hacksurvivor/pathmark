@@ -14,6 +14,7 @@ import { buildMemorySnapshot } from "./snapshot.js";
 import { decisionSchema } from "./decision-schema.js";
 import { taskBrief, checkDecisions, decisionOutcome, reviewQueue, reviewEvidence } from "./decisions.js";
 import { conclusionApprovalStatus } from "./approval.js";
+import { importScratchpadReview, checkArtifactReview } from "./artifact-review.js";
 export async function runMcpServer() {
     const config = loadConfig();
     const store = new PathmarkStore(config);
@@ -456,6 +457,20 @@ export async function runMcpServer() {
         },
     }, async ({ question, limit, tags, namespace, kind }) => answerFromMemory(question, limit, tags, namespace, kind));
     const scopeSchema = { tags: z.array(z.string().min(1)).max(30).optional(), namespace: z.string().min(1).optional() };
+    server.registerTool("import_scratchpad_review", {
+        description: "Import Scratchpad 0.4 review JSON (or its user-message wrapper) as scoped evidence. Preserve the artifact revision, hash, selection, notes, and source. Never approve a conclusion. File reads require PATHMARK_ARTIFACT_ROOTS configured on the server.",
+        inputSchema: { ...scopeSchema, review: z.string().min(1).max(32_000), artifactRoot: z.string().min(1).max(4000), source: z.string().min(1).max(2000) },
+    }, async ({ tags, namespace, ...input }) => jsonText(await importScratchpadReview(store, config, { ...input, tags: scopedTags(tags, namespace ?? config.defaultNamespace) })));
+    server.registerTool("check_artifact_review", {
+        description: "Check whether current local HTML still matches a saved Scratchpad review hash. Does not authenticate the reported reviewer or authorize work.",
+        inputSchema: { id: z.string().min(1) },
+    }, async ({ id }) => {
+        const record = await store.get(id);
+        const check = record ? await checkArtifactReview(record, config) : undefined;
+        if (!check)
+            throw new Error("Scratchpad review evidence not found");
+        return jsonText(check);
+    });
     server.registerTool("task_brief", {
         description: "Return applicable approved decisions, their rationale, expected plan fields, and evidence for an agent handoff.",
         inputSchema: { ...scopeSchema, limit: z.number().int().min(1).max(50).optional() },

@@ -43,6 +43,7 @@ export function publicConfig(config) {
         activityRetentionDays: config.activityRetentionDays,
         activityMaxRecords: config.activityMaxRecords,
         rerankCommand: config.rerankCommand ? "configured" : "not_configured",
+        artifactRoots: config.artifactRoots ?? [],
         hybridCandidateLimit: config.hybridCandidateLimit,
         retrievalTimeoutMs: config.retrievalTimeoutMs,
         exportEncryptionKey: config.exportEncryptionKey ? "set" : "missing",

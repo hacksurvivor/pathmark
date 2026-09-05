@@ -1,3 +1,4 @@
+import { type ArtifactReviewCheck } from "./artifact-review.js";
 import type { PathmarkStore } from "./store.js";
 import type { DecisionSpec, EvidenceDisposition, PathmarkConfig } from "./types.js";
 export type PlanFacts = Record<string, string | number | boolean>;
@@ -41,6 +42,7 @@ export declare function taskBrief(store: PathmarkStore, config: PathmarkConfig, 
         tags: string[];
         evidenceIds: string[];
         approval: import("./types.js").PathmarkApproval | undefined;
+        artifactReviews: ArtifactReviewCheck[];
         evidence: {
             id: string;
             preview: string | null;
@@ -60,6 +62,7 @@ export declare function checkDecisions(store: PathmarkStore, config: PathmarkCon
     findings: DecisionFinding[];
     truncated: boolean;
     status: string;
+    artifactReviews: ArtifactReviewCheck[];
     basis: string;
     plan: string | undefined;
 }>;

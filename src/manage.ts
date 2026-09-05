@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { initializeProject, projectScope } from "./project.js";
+import { importScratchpadReview, checkArtifactReview } from "./artifact-review.js";
 import { taskBrief, checkDecisions, decisionOutcome, reviewQueue, reviewEvidence } from "./decisions.js";
 import { decisionSchema, dispositionSchema } from "./decision-schema.js";
 import { auditMemory } from "./audit.js";
@@ -20,6 +21,8 @@ const USAGE = [
   "  pathmark review [--tag=TAG] [--namespace=NAME] [--limit=3]",
   "  pathmark review approve|reject --id=ID --revision=HASH [--by=NAME]",
   "  pathmark review evidence --id=ID --revision=HASH --status=temporary|duplicate|incorporated|rejected|needs-review --by=NAME",
+  "  pathmark review scratchpad --artifact-root=DIR --source=THREAD_OR_MESSAGE [--tag=TAG] < review.json",
+  "  pathmark review artifact --id=EVIDENCE_ID [--artifact-root=DIR]",
   "  pathmark decision brief [--tag=TAG] [--namespace=NAME]",
   "  pathmark decision propose [--tag=TAG] [--namespace=NAME] < decision.json",
   "  pathmark decision check [--tag=TAG] [--namespace=NAME] < plan.json",
@@ -48,13 +51,24 @@ export async function runManagementCommand(command: string, args: string[]): Pro
     return;
   }
   if (command === "review" || command === "decision") {
+    const artifactRoot = option(options, "artifact-root");
+    if (artifactRoot) config.artifactRoots = [path.resolve(artifactRoot)];
     const { z } = await import("zod");
     const action = options.positionals[0] ?? (command === "review" ? "queue" : "brief");
     const explicitTags = scopedTags(options.values.get("tag") ?? [], option(options, "namespace") ?? config.defaultNamespace);
-    const tags = explicitTags.length ? explicitTags : [`project-id:${projectScope(process.cwd()).id}`];
+    const tags = explicitTags.length ? explicitTags : [`project-id:${projectScope(option(options, "cwd") ?? process.cwd()).id}`];
     let result: unknown;
     if (command === "review" && action === "queue") result = await reviewQueue(store, tags, numberOption(options, "limit", 3));
-    else if (command === "review" && ["approve", "reject"].includes(action)) {
+    else if (command === "review" && action === "scratchpad") {
+      const source = option(options, "source");
+      if (!artifactRoot || !source) throw new Error("Scratchpad import requires --artifact-root and --source");
+      result = await importScratchpadReview(store, config, { review: await readStdin(), artifactRoot: path.resolve(artifactRoot), source, tags });
+    } else if (command === "review" && action === "artifact") {
+      const id = option(options, "id");
+      const record = id ? await store.get(id) : undefined;
+      result = record ? await checkArtifactReview(record, config) : undefined;
+      if (!result) throw new Error("Scratchpad review evidence not found");
+    } else if (command === "review" && ["approve", "reject"].includes(action)) {
       const id = option(options, "id"); const revision = option(options, "revision");
       if (!id || !revision) throw new Error("Review requires --id and --revision from the review queue");
       result = await store.decideConclusion(id, action === "approve" ? "approved" : "rejected", { expectedRevision: revision, decidedBy: option(options, "by") ?? "cli-user" });

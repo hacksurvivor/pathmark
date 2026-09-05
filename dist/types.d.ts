@@ -115,6 +115,7 @@ export interface PathmarkConfig {
     activityRetentionDays: number;
     activityMaxRecords: number;
     rerankCommand?: string;
+    artifactRoots?: string[];
     hybridCandidateLimit: number;
     retrievalTimeoutMs: number;
     exportEncryptionKey?: string;
