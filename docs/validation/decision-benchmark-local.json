@@ -1,0 +1,14 @@
+{
+  "generatedAt": "2026-09-05T03:54:20.409Z",
+  "kind": "controlled-decision-judgment",
+  "cases": 40,
+  "deterministic": {
+    "correct": 40,
+    "p95Ms": 9.966999999999985
+  },
+  "limitations": [
+    "Synthetic cases test decision judgments, not completed coding tasks or real user correction rates.",
+    "The proposed 30% correction-reduction product gate requires an observed user/task pilot."
+  ],
+  "modelEvaluation": null
+}

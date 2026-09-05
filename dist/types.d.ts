@@ -1,3 +1,7 @@
+import type { z } from "zod";
+import type { decisionSchema, dispositionSchema } from "./decision-schema.js";
+export type DecisionSpec = z.infer<typeof decisionSchema>;
+export type EvidenceDisposition = z.infer<typeof dispositionSchema>;
 export type PathmarkRecordKind = "memory" | "conclusion";
 export type PathmarkApprovalStatus = "pending" | "approved" | "rejected";
 export interface PathmarkApproval {
@@ -6,6 +10,8 @@ export interface PathmarkApproval {
     decidedAt?: string;
     decidedBy?: string;
     note?: string;
+    revision?: string;
+    evidenceRevisions?: Record<string, string>;
 }
 export interface PathmarkRecordVersion {
     text: string;
@@ -26,6 +32,8 @@ export interface PathmarkRecallFeedbackActivity {
     relevantIds: string[];
     irrelevantIds: string[];
     note?: string;
+    revision?: string;
+    evidenceRevisions?: Record<string, string>;
 }
 export interface PathmarkToolActivity {
     type: "tool";
@@ -60,6 +68,8 @@ export interface PathmarkRecord {
     activity?: PathmarkActivity;
     approval?: PathmarkApproval;
     evidenceIds?: string[];
+    decision?: DecisionSpec;
+    disposition?: EvidenceDisposition;
 }
 export interface PathmarkRecordDraft {
     id?: string;
@@ -74,6 +84,8 @@ export interface PathmarkRecordDraft {
     activity?: PathmarkActivity;
     approval?: PathmarkApproval;
     evidenceIds?: string[];
+    decision?: DecisionSpec;
+    disposition?: EvidenceDisposition;
 }
 export interface PathmarkConfig {
     storeDir: string;
@@ -112,6 +124,8 @@ export interface SearchResult {
     score: number;
     matchedTerms: string[];
     retrieval?: "lexical" | "hybrid";
+    semanticScore?: number;
+    semanticQuery?: string;
 }
 export interface StoreDiagnosis {
     totalRecords: number;

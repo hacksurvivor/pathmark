@@ -26,3 +26,4 @@ export declare function prepareConsolidationBatch(store: PathmarkStore, options?
 export declare function consolidateMemory(store: PathmarkStore, config: PathmarkConfig, options?: ConsolidationOptions): Promise<Record<string, unknown>>;
 export declare function consolidationNudge(batch: ConsolidationBatch, minimumEvidence: number): string;
 export declare function isConsolidationEvidence(record: PathmarkRecord): boolean;
+export declare function hasReviewedDisposition(record: PathmarkRecord): boolean;

@@ -1,0 +1,14 @@
+{
+  "observedOn": "2026-09-05",
+  "recordedBy": "parent test runner from completed canary output",
+  "status": "blocked",
+  "kind": "two-independent-model-sessions-over-mcp",
+  "reason": "Automatic approval review blocked Pathmark remember because approval is required but the approval policy is never. No evidence or proposal was created.",
+  "proposalPersisted": false,
+  "reviewingModelStarted": false,
+  "limitations": [
+    "The actual model handoff remains unverified.",
+    "The approval policy was not relaxed or bypassed.",
+    "Two protocol clients and the separate model judgment benchmark are not equivalent to this canary."
+  ]
+}

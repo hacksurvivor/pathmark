@@ -1,5 +1,6 @@
+import { loadScopeEvidence, matchesEffectiveTags } from "./scope.js";
 import { conclusionApprovalStatus } from "./approval.js";
-import { isConsolidationEvidence } from "./consolidate.js";
+import { hasReviewedDisposition, isConsolidationEvidence } from "./consolidate.js";
 import type { PathmarkStore } from "./store.js";
 import type { PathmarkRecord } from "./types.js";
 
@@ -21,7 +22,8 @@ export async function auditMemory(store: PathmarkStore, options: MemoryAuditOpti
   const tags = [...new Set((options.tags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean))];
   const windowStartMs = days > 0 ? now.getTime() - days * DAY_MS : undefined;
   const allActive = await store.all();
-  const selected = allActive.filter((record) => tags.every((tag) => record.tags.includes(tag)));
+  const scopeEvidence = await loadScopeEvidence(store, allActive);
+  const selected = allActive.filter((record) => matchesEffectiveTags(record, tags, scopeEvidence));
   const selectedIds = new Set(selected.map((record) => record.id));
   const allById = new Map(allActive.map((record) => [record.id, record]));
   const eligible = selected.filter((record) => !isActivity(record));
@@ -65,7 +67,7 @@ export async function auditMemory(store: PathmarkStore, options: MemoryAuditOpti
   const lastRecallAt = recallEvents.at(-1)?.createdAt ?? null;
   const feedback = recallFeedback(selected, allById, selectedIds, windowStartMs);
   const unprocessedEligibleEvidenceRecords = consolidationEvidence.filter(
-    (record) => !referencedConsolidationEvidenceIds.has(record.id),
+    (record) => !referencedConsolidationEvidenceIds.has(record.id) && !hasReviewedDisposition(record),
   ).length;
   const eligibleEvidenceConclusionCoverage = ratio(
     referencedConsolidationEvidenceIds.size,
@@ -96,6 +98,7 @@ export async function auditMemory(store: PathmarkStore, options: MemoryAuditOpti
       rejectedConclusions: conclusions.filter((record) => conclusionApprovalStatus(record) === "rejected").length,
       evidenceBackedConclusions: synthesisEligibleConclusions.length,
       consolidationEligibleRawEvidenceRecords: consolidationEvidence.length,
+      reviewedEvidenceRecords: consolidationEvidence.filter(hasReviewedDisposition).length,
       excludedFromConsolidationRecords: rawEvidence.length - consolidationEvidence.length,
       exactDuplicateRecords: duplicateRecords,
       exactDuplicateRate: ratio(duplicateRecords, eligible.length),
@@ -132,6 +135,14 @@ export async function auditMemory(store: PathmarkStore, options: MemoryAuditOpti
       rawEvidenceConclusionCoverage: eligibleEvidenceConclusionCoverage,
       eligibleEvidenceConclusionCoverage,
     },
+    decisionChecks: {
+      retainedChecks: selected.filter((record) => record.tags.includes("decision-check") && inWindow(record.createdAt, windowStartMs)).length,
+      retainedOutcomes: selected.filter((record) => record.tags.includes("decision-outcome") && inWindow(record.createdAt, windowStartMs)).length,
+      useful: selected.filter((record) => record.tags.includes("outcome:useful") && inWindow(record.createdAt, windowStartMs)).length,
+      falseAlarms: selected.filter((record) => record.tags.includes("outcome:false-alarm") && inWindow(record.createdAt, windowStartMs)).length,
+      limitation: "Outcome labels are reported observations, not a causal measure of improvement. Retention can shorten the requested window.",
+    },
+    exposureChannels: Object.fromEntries(["chat", "explicit", "snapshot", "brief"].map((channel) => [channel, recallEvents.filter((record) => record.tags.includes(`channel-${channel}`)).length])),
     precision:
       feedback.labeledReferences > 0
         ? {

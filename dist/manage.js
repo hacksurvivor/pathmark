@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { initializeProject, projectScope } from "./project.js";
+import { taskBrief, checkDecisions, decisionOutcome, reviewQueue, reviewEvidence } from "./decisions.js";
+import { decisionSchema, dispositionSchema } from "./decision-schema.js";
 import { auditMemory } from "./audit.js";
 import { consolidateMemory } from "./consolidate.js";
 import { recordRecallFeedback } from "./feedback.js";
@@ -11,6 +14,14 @@ import { decryptPortableExport } from "./portable.js";
 import { namespaceTag, PathmarkStore } from "./store.js";
 const USAGE = [
     "Usage:",
+    "  pathmark project [init] [--cwd=DIR] [--id=SHARED_ID]",
+    "  pathmark review [--tag=TAG] [--namespace=NAME] [--limit=3]",
+    "  pathmark review approve|reject --id=ID --revision=HASH [--by=NAME]",
+    "  pathmark review evidence --id=ID --revision=HASH --status=temporary|duplicate|incorporated|rejected|needs-review --by=NAME",
+    "  pathmark decision brief [--tag=TAG] [--namespace=NAME]",
+    "  pathmark decision propose [--tag=TAG] [--namespace=NAME] < decision.json",
+    "  pathmark decision check [--tag=TAG] [--namespace=NAME] < plan.json",
+    "  pathmark decision outcome --check-id=ID --outcome=useful|false-alarm|missed-conflict|decision-changed|no-effect",
     "  pathmark chat QUESTION [--namespace=NAME] [--tag=TAG] [--limit=N] [--kind=memory|conclusion]",
     "  pathmark feedback --recall-id=ID [--relevant=ID] [--irrelevant=ID] [--note=TEXT]",
     "  pathmark consolidate [--days=N] [--namespace=NAME] [--tag=TAG] [--limit=N] [--cursor=ID] [--max-proposals=N] [--apply]",
@@ -27,6 +38,54 @@ export async function runManagementCommand(command, args) {
     const config = loadConfig();
     const store = new PathmarkStore(config);
     const options = parseOptions(args);
+    if (command === "project") {
+        const cwd = option(options, "cwd") ?? process.cwd();
+        console.log(JSON.stringify(options.positionals[0] === "init" ? initializeProject(cwd, option(options, "id")) : projectScope(cwd), null, 2));
+        return;
+    }
+    if (command === "review" || command === "decision") {
+        const { z } = await import("zod");
+        const action = options.positionals[0] ?? (command === "review" ? "queue" : "brief");
+        const explicitTags = scopedTags(options.values.get("tag") ?? [], option(options, "namespace") ?? config.defaultNamespace);
+        const tags = explicitTags.length ? explicitTags : [`project-id:${projectScope(process.cwd()).id}`];
+        let result;
+        if (command === "review" && action === "queue")
+            result = await reviewQueue(store, tags, numberOption(options, "limit", 3));
+        else if (command === "review" && ["approve", "reject"].includes(action)) {
+            const id = option(options, "id");
+            const revision = option(options, "revision");
+            if (!id || !revision)
+                throw new Error("Review requires --id and --revision from the review queue");
+            result = await store.decideConclusion(id, action === "approve" ? "approved" : "rejected", { expectedRevision: revision, decidedBy: option(options, "by") ?? "cli-user" });
+        }
+        else if (command === "review" && action === "evidence") {
+            const input = z.object({ id: z.string().min(1), revision: z.string().min(1), status: dispositionSchema.shape.status, reviewedBy: z.string().min(1) }).parse({ id: option(options, "id"), revision: option(options, "revision"), status: option(options, "status"), reviewedBy: option(options, "by") });
+            result = await reviewEvidence(store, { ...input, note: option(options, "note") });
+        }
+        else if (command === "decision" && action === "brief")
+            result = await taskBrief(store, config, tags);
+        else if (command === "decision" && action === "check") {
+            const input = z.object({ facts: z.record(z.union([z.string(), z.number().finite(), z.boolean()])), plan: z.string().max(4000).optional() }).parse(JSON.parse(await readStdin()));
+            result = await checkDecisions(store, config, { ...input, tags });
+        }
+        else if (command === "decision" && action === "propose") {
+            const input = z.object({ text: z.string().min(1), decision: decisionSchema, evidenceIds: z.array(z.string().min(1)).min(1) }).parse(JSON.parse(redactSecrets(await readStdin()).text));
+            for (const id of input.evidenceIds) {
+                const evidence = await store.get(id);
+                if (!evidence || evidence.kind !== "memory" || !tags.every((tag) => evidence.tags.includes(tag)))
+                    throw new Error("Decision evidence must exist in the selected scope");
+            }
+            result = await store.proposeConclusion({ ...input, tags, source: "pathmark:decision-cli" }, { dedupe: true });
+        }
+        else if (command === "decision" && action === "outcome") {
+            const input = z.object({ checkId: z.string().min(1), outcome: z.enum(["useful", "false-alarm", "missed-conflict", "decision-changed", "no-effect"]) }).parse({ checkId: option(options, "check-id"), outcome: option(options, "outcome") });
+            result = await decisionOutcome(store, config, { ...input, note: option(options, "note") });
+        }
+        else
+            throw new Error(USAGE);
+        console.log(JSON.stringify(result, null, 2));
+        return;
+    }
     if (command === "chat") {
         const question = option(options, "question") ?? options.positionals.join(" ").trim();
         if (!question)
@@ -202,6 +261,8 @@ async function importDrafts(file, namespace, redact, encryptionKey) {
             expiresAt: typeof value.expiresAt === "string" ? value.expiresAt : undefined,
             supersedes: typeof value.supersedes === "string" ? value.supersedes : undefined,
             activity: importedActivity(value.activity),
+            decision: value.decision === undefined ? undefined : decisionSchema.parse(value.decision),
+            disposition: value.disposition === undefined ? undefined : dispositionSchema.parse(value.disposition),
             approval: value.kind === "conclusion" ? importedApproval(value.approval) : undefined,
             evidenceIds: value.kind === "conclusion" && Array.isArray(value.evidenceIds)
                 ? value.evidenceIds.filter((id) => typeof id === "string" && Boolean(id.trim()))
@@ -225,6 +286,8 @@ function importedApproval(value) {
         ...(typeof value.decidedAt === "string" ? { decidedAt: value.decidedAt } : {}),
         ...(typeof value.decidedBy === "string" ? { decidedBy: value.decidedBy } : {}),
         ...(typeof value.note === "string" ? { note: value.note } : {}),
+        ...(typeof value.revision === "string" ? { revision: value.revision } : {}),
+        ...(isObject(value.evidenceRevisions) ? { evidenceRevisions: value.evidenceRevisions } : {}),
     };
 }
 function importedActivity(value) {

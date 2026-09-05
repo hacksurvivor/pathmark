@@ -3,190 +3,78 @@ import { isApprovedConclusion } from "./approval.js";
 import { recordMemoryQueryRecall } from "./feedback.js";
 import { summarizeSearch, usedMemories } from "./format.js";
 import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "./memory-safety.js";
-import { selectRelevantResultsByIntent } from "./relevance.js";
+import { selectRelevantResultsByIntent, splitQueryIntents } from "./relevance.js";
+import { appliesToScope, loadScopeEvidence, matchesEffectiveTags } from "./scope.js";
 import type { PathmarkStore } from "./store.js";
-import type { PathmarkConfig, PathmarkRecord, PathmarkRecordKind, SearchResult } from "./types.js";
-
-const INHERITABLE_SCOPE_PREFIXES = ["workspace:", "project:", "namespace:"];
-const CONCLUSION_RESCORE_BATCH_SIZE = 50;
+import type { PathmarkConfig, PathmarkRecordKind, SearchResult } from "./types.js";
 
 export interface MemoryQueryOptions {
   limit?: number;
   tags?: string[];
   kind?: PathmarkRecordKind;
+  applicableScope?: boolean;
+  rawRecallDays?: number;
 }
 
-export async function relevantMemorySearch(
-  store: PathmarkStore,
-  config: PathmarkConfig,
-  query: string,
-  options: MemoryQueryOptions = {},
-): Promise<SearchResult[]> {
-  const selectedLimit = options.limit ?? config.maxSearchResults;
-  if (options.kind === "conclusion") {
-    return relevantConclusionSearch(store, query, selectedLimit, options.tags ?? []);
+export async function relevantMemorySearch(store: PathmarkStore, config: PathmarkConfig, query: string, options: MemoryQueryOptions = {}): Promise<SearchResult[]> {
+  const limit = options.limit ?? config.maxSearchResults;
+  const tags = options.tags ?? [];
+  const conclusions = await candidates("conclusion");
+  const raw = options.kind === "conclusion" || (!tags.length && options.kind !== "memory") ? [] : await candidates("memory");
+  const selected = new Map<string, SearchResult>();
+  const intents = query.trim() ? splitQueryIntents(query) : [query];
+  // Give every intent one slot before spending the remaining budget on additional matches.
+  const groups = [];
+  for (const intent of intents.slice(0, 12)) {
+    const approved = options.kind === "memory" ? [] : select(await store.rankRecords(conclusions.map((item) => item.record), intent, 100), intent);
+    groups.push(approved.length ? approved : select(await store.rankRecords(raw.map((item) => item.record), intent, 100), intent));
   }
-  if (options.kind === "memory") {
-    return relevantKindSearch(store, query, selectedLimit, options.tags ?? [], "memory");
+  for (let rank = 0; rank < limit; rank++) {
+    for (const group of groups) {
+      const item = group[rank];
+      if (item) selected.set(item.record.id, item);
+      if (selected.size >= limit) return [...selected.values()];
+    }
   }
+  return [...selected.values()];
 
-  const conclusions = await relevantConclusionSearch(store, query, selectedLimit, options.tags ?? []);
-  if (conclusions.length > 0) return conclusions;
-  if ((options.tags ?? []).length === 0) return [];
-  return relevantKindSearch(store, query, selectedLimit, options.tags ?? [], "memory");
+  function select(items: SearchResult[], intent: string): SearchResult[] {
+    return intent.trim() ? selectRelevantResultsByIntent(items, intent, limit, intents.length > 1 ? { maxRequiredMatches: 1 } : {}) : items.slice(0, limit);
+  }
+  async function candidates(kind: PathmarkRecordKind): Promise<SearchResult[]> {
+    if (options.kind && options.kind !== kind) return [];
+    const records = (await store.all({ kind })).filter((record) =>
+      !record.tags.includes("pathmark-activity") && !record.tags.includes(QUARANTINED_MEMORY_TAG) &&
+      !isUnsafeMemoryText(record.text) &&
+      (kind === "conclusion" ? isApprovedConclusion(record) : !isInternalInstructionText(record.text)) &&
+      (kind !== "memory" || options.rawRecallDays === undefined || Date.parse(record.updatedAt) >= Date.now() - options.rawRecallDays * 86400000));
+    const evidence = await loadScopeEvidence(store, records);
+    const scoped = records.filter((record) => options.applicableScope
+      ? appliesToScope(record, tags, evidence) && (kind !== "memory" || matchesEffectiveTags(record, tags.filter((tag) => tag.startsWith("workspace:")).slice(0, 1), evidence))
+      : matchesEffectiveTags(record, tags, evidence));
+    return store.rankRecords(scoped, query, Math.max(100, limit * 4));
+  }
 }
 
-export async function answerMemory(
-  store: PathmarkStore,
-  config: PathmarkConfig,
-  question: string,
-  options: MemoryQueryOptions = {},
-): Promise<Record<string, unknown>> {
+export async function answerMemory(store: PathmarkStore, config: PathmarkConfig, question: string, options: MemoryQueryOptions = {}): Promise<Record<string, unknown>> {
   const results = await relevantMemorySearch(store, config, question, options);
   const recallId = await recordMemoryQueryRecall(store, config, question, results, options.tags).catch(() => undefined);
+  const coverage = splitQueryIntents(question).map((intent) => ({
+    intent, memoryIds: selectRelevantResultsByIntent(results, intent, results.length).map((item) => item.record.id),
+  }));
+  const unknownIntents = coverage.filter((item) => !item.memoryIds.length).map((item) => item.intent);
   const synthesized = await synthesizeWithCommand({ config, question, context: results });
-  const extractive = synthesized ? undefined : approvedConclusionAnswer(results);
-  const answer = synthesized ?? extractive ?? (results.length === 0 ? "No approved conclusion or scoped raw evidence matched this question." : undefined);
+  const extractive = results.length && results.every((item) => item.record.kind === "conclusion")
+    ? results.length === 1 ? results[0].record.text : ["Approved conclusions:", ...results.map((item) => `- ${item.record.text}`)].join("\n") : undefined;
+  let answer = synthesized ?? extractive ?? (results.length === 0 ? "No approved conclusion or scoped raw evidence matched this question." : undefined);
+  if (answer && results.length && unknownIntents.length) answer += `\nUnanswered: ${unknownIntents.join("; ")}`;
+  const mixed = results.some((item) => item.record.kind === "memory") && results.some((item) => item.record.kind === "conclusion");
   return {
     answer: answer ?? null,
-    synthesis: synthesized
-      ? config.synthesisProvider
-      : extractive
-        ? "approved_conclusion_extract"
-        : results.length === 0
-          ? "pathmark_abstention"
-          : "client_should_synthesize",
-    retrievalMode:
-      results.length === 0
-        ? "no_match"
-        : options.kind ?? (results[0]?.record.kind === "conclusion" ? "approved_conclusions" : "raw_evidence_fallback"),
-    context: summarizeSearch(results),
-    usedMemories: usedMemories(results),
-    records: results.map((result) => result.record),
-    recallId: recallId ?? null,
-    ...(answer
-      ? {}
-      : {
-          nextStep:
-            "The MCP host should answer from context, or configure PATHMARK_SYNTHESIS_PROVIDER=codex|command|openai-compatible for server-side synthesis.",
-        }),
+    synthesis: synthesized ? config.synthesisProvider : extractive ? "approved_conclusion_extract" : results.length ? "client_should_synthesize" : "pathmark_abstention",
+    retrievalMode: !results.length ? "no_match" : mixed ? "mixed_evidence" : options.kind ?? (results[0].record.kind === "conclusion" ? "approved_conclusions" : "raw_evidence_fallback"),
+    context: summarizeSearch(results), usedMemories: usedMemories(results), records: results.map((item) => item.record),
+    recallId: recallId ?? null, coverage, complete: unknownIntents.length === 0,
+    ...(answer ? {} : { nextStep: "The MCP host should answer covered intents from the labeled context and explicitly identify unknowns. Raw evidence is not approved intent." }),
   };
-}
-
-async function relevantKindSearch(
-  store: PathmarkStore,
-  query: string,
-  limit: number,
-  tags: string[],
-  kind: PathmarkRecordKind,
-): Promise<SearchResult[]> {
-  const candidates = await relevantKindCandidates(store, query, limit, tags, kind);
-  return query.trim() ? selectRelevantResultsByIntent(candidates, query, limit) : candidates.slice(0, limit);
-}
-
-async function relevantConclusionSearch(
-  store: PathmarkStore,
-  query: string,
-  limit: number,
-  tags: string[],
-): Promise<SearchResult[]> {
-  const requestedInheritedScopes = tags.filter(isInheritableScopeTag);
-  if (requestedInheritedScopes.length === 0) {
-    return relevantKindSearch(store, query, limit, tags, "conclusion");
-  }
-
-  const direct = await relevantKindCandidates(store, query, limit, tags, "conclusion");
-  const nonInheritedTags = tags.filter((tag) => !isInheritableScopeTag(tag));
-  const broader = (await store.all({ kind: "conclusion" }))
-    .filter(
-      (record) =>
-        isApprovedConclusion(record) &&
-        nonInheritedTags.every((tag) => record.tags.includes(tag)) &&
-        !record.tags.includes("pathmark-activity") &&
-        !record.tags.includes(QUARANTINED_MEMORY_TAG) &&
-        !isUnsafeMemoryText(record.text),
-    )
-    .map((record): SearchResult => ({ record, score: 0, matchedTerms: [], retrieval: "lexical" }));
-  const merged = new Map<string, SearchResult>();
-  for (const result of [...direct, ...broader]) {
-    const existing = merged.get(result.record.id);
-    if (!existing || result.score > existing.score) merged.set(result.record.id, result);
-  }
-
-  const evidenceIds = [...merged.values()]
-    .filter((result) => requestedInheritedScopes.some((tag) => !result.record.tags.includes(tag)))
-    .flatMap((result) => result.record.evidenceIds ?? []);
-  const loadedEvidence = await store.getMany(evidenceIds, { includeDeleted: true });
-  const evidenceCache = new Map<string, PathmarkRecord | undefined>();
-  for (const id of new Set(evidenceIds)) evidenceCache.set(id, loadedEvidence.get(id));
-
-  const scoped: SearchResult[] = [];
-  for (const result of merged.values()) {
-    if (conclusionMatchesEffectiveTags(result.record, tags, evidenceCache)) scoped.push(result);
-  }
-  const scopedIds = scoped.map((result) => result.record.id);
-  const rescored: SearchResult[] = [];
-  for (let index = 0; index < scopedIds.length; index += CONCLUSION_RESCORE_BATCH_SIZE) {
-    rescored.push(
-      ...(await store.searchByIds({
-        ids: scopedIds.slice(index, index + CONCLUSION_RESCORE_BATCH_SIZE),
-        query,
-        kind: "conclusion",
-      })),
-    );
-  }
-  const ranked = rescored.sort((a, b) => b.score - a.score || b.record.createdAt.localeCompare(a.record.createdAt));
-  return query.trim() ? selectRelevantResultsByIntent(ranked, query, limit) : ranked.slice(0, limit);
-}
-
-async function relevantKindCandidates(
-  store: PathmarkStore,
-  query: string,
-  limit: number,
-  tags: string[],
-  kind: PathmarkRecordKind,
-): Promise<SearchResult[]> {
-  const candidateLimit = query.trim() ? Math.min(100, Math.max(20, limit * 4)) : limit;
-  return (await store.search({ query, limit: candidateLimit, tags, kind })).filter(
-    (result) =>
-      !result.record.tags.includes("pathmark-activity") &&
-      !result.record.tags.includes(QUARANTINED_MEMORY_TAG) &&
-      !isUnsafeMemoryText(result.record.text) &&
-      (kind !== "memory" || !isInternalInstructionText(result.record.text)),
-  );
-}
-
-function conclusionMatchesEffectiveTags(
-  conclusion: PathmarkRecord,
-  requiredTags: string[],
-  evidenceCache: Map<string, PathmarkRecord | undefined>,
-): boolean {
-  const missing = requiredTags.filter((tag) => !conclusion.tags.includes(tag));
-  if (missing.length === 0) return true;
-  if (missing.some((tag) => !isInheritableScopeTag(tag))) return false;
-
-  return evidenceSupportsScopes(conclusion, missing, evidenceCache);
-}
-
-function evidenceSupportsScopes(
-  conclusion: PathmarkRecord,
-  requiredScopes: string[],
-  evidenceCache: Map<string, PathmarkRecord | undefined>,
-): boolean {
-  if (!conclusion.evidenceIds?.length) return false;
-
-  return conclusion.evidenceIds.every((id) => {
-    const evidence = evidenceCache.get(id);
-    return evidence?.kind === "memory" && requiredScopes.every((tag) => evidence.tags.includes(tag));
-  });
-}
-
-function isInheritableScopeTag(tag: string): boolean {
-  return INHERITABLE_SCOPE_PREFIXES.some((prefix) => tag.startsWith(prefix));
-}
-
-function approvedConclusionAnswer(results: SearchResult[]): string | undefined {
-  if (results.length === 0 || results.some((result) => result.record.kind !== "conclusion")) return undefined;
-  if (results.length === 1) return results[0].record.text;
-  return ["Approved conclusions:", ...results.map((result) => `- ${result.record.text}`)].join("\n");
 }

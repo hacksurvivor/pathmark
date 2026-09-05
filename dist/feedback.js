@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { redactSecrets } from "./redact.js";
 const DAY_MS = 24 * 60 * 60 * 1_000;
-export async function recordMemoryQueryRecall(store, config, query, results, tags = []) {
+export async function recordMemoryQueryRecall(store, config, query, results, tags = [], channel = "chat") {
     if (results.length === 0)
         return undefined;
     const at = new Date().toISOString();
@@ -14,11 +14,11 @@ export async function recordMemoryQueryRecall(store, config, query, results, tag
             "pathmark-activity",
             "activity-recall",
             "role-tool",
-            "channel-chat",
+            `channel-${channel}`,
             ...tags,
             ...commonScopeTags(results),
         ]),
-        source: "pathmark:chat",
+        source: `pathmark:${channel}`,
         createdAt: at,
         updatedAt: at,
         ...(config.activityRetentionDays > 0

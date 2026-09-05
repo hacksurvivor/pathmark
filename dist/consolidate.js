@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { conclusionApprovalStatus } from "./approval.js";
+import { conclusionApprovalStatus, recordRevision } from "./approval.js";
 import { synthesizeWithCommand } from "./chat.js";
 import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "./memory-safety.js";
 const DAY_MS = 24 * 60 * 60 * 1_000;
@@ -29,7 +29,7 @@ export async function prepareConsolidationBatch(store, options = {}) {
         return Number.isFinite(createdAt) && createdAt >= cutoff;
     })
         .sort(compareEvidenceNewestFirst);
-    const backlog = eligible.filter((record) => !referencedIds.has(record.id));
+    const backlog = eligible.filter((record) => !referencedIds.has(record.id) && !hasReviewedDisposition(record));
     const requestedCursor = options.cursor?.trim() || undefined;
     const cursorRecord = requestedCursor ? eligible.find((record) => record.id === requestedCursor) : undefined;
     if (requestedCursor && !cursorRecord)
@@ -217,5 +217,8 @@ function clamp(value, minimum, maximum) {
 }
 function isObject(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+export function hasReviewedDisposition(record) {
+    return Boolean(record.disposition && record.disposition.status !== "needs-review" && record.disposition.revision === recordRevision(record));
 }
 //# sourceMappingURL=consolidate.js.map

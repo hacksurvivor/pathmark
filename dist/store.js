@@ -3,7 +3,9 @@ import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat, write
 import { createRequire } from "node:module";
 import path from "node:path";
 import { isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "./memory-safety.js";
-import { APPROVAL_PENDING_TAG, APPROVAL_REJECTED_TAG, APPROVAL_STATE_TAGS, conclusionApprovalStatus, isRecallableRecord, withApprovalTag, } from "./approval.js";
+import { APPROVAL_PENDING_TAG, APPROVAL_REJECTED_TAG, APPROVAL_STATE_TAGS, conclusionApprovalStatus, isRecallableRecord, recordRevision, withApprovalTag, } from "./approval.js";
+import { decisionSchema, dispositionSchema } from "./decision-schema.js";
+import { loadScopeEvidence, matchesEffectiveTags } from "./scope.js";
 import { tokenizeSearchText } from "./tokenize.js";
 import { rerankWithCommand } from "./retrieval.js";
 import { encryptPortableExport } from "./portable.js";
@@ -122,11 +124,21 @@ export class PathmarkStore {
                     ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
                     ...(input.supersedes ? { supersedes: input.supersedes } : {}),
                     ...(input.activity ? { activity: input.activity } : {}),
+                    ...(input.decision ? { decision: decisionSchema.parse(input.decision) } : {}),
+                    ...(input.disposition ? { disposition: dispositionSchema.parse(input.disposition) } : {}),
                     ...(approval ? { approval } : {}),
                     ...(input.kind === "conclusion" && input.evidenceIds
                         ? { evidenceIds: normalizeEvidenceIds(input.evidenceIds) }
                         : {}),
                 };
+                if (record.approval?.status === "approved") {
+                    if (record.approval.revision && record.approval.revision !== recordRevision(record)) {
+                        record.approval = { status: "pending", proposedAt: now, note: "Imported content differs from its approved revision" };
+                        record.tags = normalizeTags(withApprovalTag(record.tags, "pending"));
+                    }
+                    else
+                        record.approval = { ...record.approval, revision: recordRevision(record) };
+                }
                 if (findDuplicates) {
                     const hash = contentHash(record);
                     const pendingDuplicate = pendingHashes.get(hash)?.find((candidate) => canDedupeRecord(record, candidate));
@@ -220,6 +232,8 @@ export class PathmarkStore {
             const existing = rowToRecord(row);
             if (existing.kind !== "conclusion")
                 throw new Error("Only conclusions can be approved or rejected");
+            if (patch.expectedRevision && patch.expectedRevision !== recordRevision(existing))
+                throw new Error("Proposal changed since review; reload it first");
             const currentStatus = conclusionApprovalStatus(existing);
             if (currentStatus === status)
                 return existing;
@@ -257,10 +271,26 @@ export class PathmarkStore {
                 ...(changed ? { history: [...(existing.history ?? []), previous].slice(-50) } : {}),
             };
             const replacements = new Map([[id, updated]]);
+            if (status === "approved") {
+                updated.approval.revision = recordRevision(updated);
+                const evidenceRevisions = {};
+                for (const evidenceId of updated.evidenceIds ?? []) {
+                    const evidenceRow = db.prepare("SELECT * FROM records WHERE id = ? AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)").get(evidenceId, new Date().toISOString());
+                    if (!evidenceRow && updated.decision)
+                        throw new Error("Decision evidence is missing; review it before approval");
+                    if (evidenceRow)
+                        evidenceRevisions[evidenceId] = recordRevision(rowToRecord(evidenceRow));
+                }
+                updated.approval.evidenceRevisions = evidenceRevisions;
+            }
             if (status === "approved" && existing.supersedes) {
                 const originalRow = db.prepare("SELECT * FROM records WHERE id = ? AND deleted_at IS NULL").get(existing.supersedes);
+                if (!originalRow)
+                    throw new Error("Original conclusion is no longer active; review the current revision");
                 if (originalRow) {
                     const original = rowToRecord(originalRow);
+                    if (original.supersededBy)
+                        throw new Error("Original conclusion has already been superseded; review the current revision");
                     replacements.set(original.id, { ...original, supersededBy: id, deletedAt: now, updatedAt: now });
                 }
             }
@@ -452,10 +482,32 @@ export class PathmarkStore {
                 updatedAt: new Date().toISOString(),
                 history: [...(existing.history ?? []), previous].slice(-50),
             };
+            if (patch.decision)
+                updated.decision = decisionSchema.parse(patch.decision);
+            if (patch.disposition) {
+                if (existing.kind !== "memory" || existing.activity)
+                    throw new Error("Only raw evidence can be reviewed");
+                if (patch.disposition.revision !== recordRevision(existing))
+                    throw new Error("Evidence changed since review; reload it first");
+                updated.disposition = dispositionSchema.parse(patch.disposition);
+            }
             if (patch.expiresAt === null)
                 delete updated.expiresAt;
             else if (patch.expiresAt !== undefined)
                 updated.expiresAt = patch.expiresAt;
+            if (recordRevision(updated) !== recordRevision(existing)) {
+                delete updated.disposition;
+                if (existing.kind === "conclusion" && approvalStatus === "approved") {
+                    const proposal = { ...updated, id: randomUUID(), supersedes: existing.id,
+                        createdAt: new Date().toISOString(), approval: { status: "pending", proposedAt: new Date().toISOString() },
+                        tags: normalizeTags(withApprovalTag(updated.tags, "pending")) };
+                    delete proposal.supersededBy;
+                    await this.appendMany([proposal]);
+                    indexRecords(db, [proposal]);
+                    await updateIndexMetadata(db, this.config.memoryFile, currentInvalidRecordCount(db));
+                    return proposal;
+                }
+            }
             await this.rewriteRecords(new Map([[id, updated]]));
             indexRecords(db, [updated]);
             await updateIndexMetadata(db, this.config.memoryFile, currentInvalidRecordCount(db));
@@ -577,13 +629,27 @@ export class PathmarkStore {
     async exportTo(destination, options = {}) {
         const records = await this.all({ includeDeleted: options.includeDeleted, kind: options.kind });
         const requiredTags = normalizeTags([...(options.tags ?? []), ...(options.namespace ? [namespaceTag(options.namespace)] : [])]);
-        const filtered = requiredTags.length === 0 ? records : records.filter((record) => requiredTags.every((tag) => record.tags.includes(tag)));
+        const evidence = await loadScopeEvidence(this, records);
+        const filtered = requiredTags.length === 0 ? records : records.filter((record) => matchesEffectiveTags(record, requiredTags, evidence));
         const file = path.resolve(destination);
         await mkdir(path.dirname(file), { recursive: true });
         const body = filtered.length > 0 ? `${filtered.map((record) => JSON.stringify(record)).join("\n")}\n` : "";
         const output = options.encrypted ? await encryptPortableExport(body, this.config.exportEncryptionKey ?? "") : body;
         await writeFile(file, output, "utf8");
         return { file, recordCount: filtered.length };
+    }
+    async rankRecords(records, query, limit) {
+        const terms = tokenizeSearchText(query);
+        const candidates = records.filter(isRecallableRecord).map((record) => scoreRecord(record, terms))
+            .sort((a, b) => b.score - a.score || b.record.updatedAt.localeCompare(a.record.updatedAt));
+        if (this.config.rerankCommand && candidates.length) {
+            try {
+                return (await rerankWithCommand({ command: this.config.rerankCommand, query,
+                    candidates: candidates.slice(0, this.config.hybridCandidateLimit), timeoutMs: this.config.retrievalTimeoutMs })).slice(0, limit);
+            }
+            catch { /* Ranking is optional; preserve the deterministic fallback. */ }
+        }
+        return candidates.slice(0, limit);
     }
     async search(input) {
         const queryTerms = tokenizeSearchText(input.query);
@@ -1079,9 +1145,13 @@ function parseRecordLine(line) {
                 !value.evidenceIds.every((id) => typeof id === "string" && id.trim()))) {
             return undefined;
         }
+        if (value.decision !== undefined && (value.kind !== "conclusion" || !decisionSchema.safeParse(value.decision).success))
+            return undefined;
+        if (value.disposition !== undefined && !dispositionSchema.safeParse(value.disposition).success)
+            return undefined;
         const approval = value.approval;
         const normalizedTags = normalizeTags(value.tags);
-        return {
+        const record = {
             id: value.id,
             kind: value.kind,
             text: value.text,
@@ -1097,8 +1167,15 @@ function parseRecordLine(line) {
             ...(Array.isArray(value.history) ? { history: value.history } : {}),
             ...(value.activity ? { activity: value.activity } : {}),
             ...(approval ? { approval } : {}),
+            ...(value.decision ? { decision: decisionSchema.parse(value.decision) } : {}),
+            ...(value.disposition ? { disposition: dispositionSchema.parse(value.disposition) } : {}),
             ...(Array.isArray(value.evidenceIds) ? { evidenceIds: normalizeEvidenceIds(value.evidenceIds) } : {}),
         };
+        if (record.approval?.status === "approved" && record.approval.revision && recordRevision(record) !== record.approval.revision) {
+            record.approval = { status: "pending", proposedAt: record.updatedAt, note: "Approval invalidated: record revision changed" };
+            record.tags = normalizeTags(withApprovalTag(record.tags, "pending"));
+        }
+        return record;
     }
     catch {
         return undefined;
@@ -1178,7 +1255,7 @@ function isPathmarkApproval(value) {
         return false;
     if (typeof value.proposedAt !== "string")
         return false;
-    for (const key of ["decidedAt", "decidedBy", "note"]) {
+    for (const key of ["decidedAt", "decidedBy", "note", "revision"]) {
         if (value[key] !== undefined && typeof value[key] !== "string")
             return false;
     }
@@ -1233,6 +1310,8 @@ function compactionHash(record) {
 function canDedupeRecord(incoming, candidate) {
     if (incoming.kind !== "conclusion")
         return true;
+    if (recordRevision(incoming) !== recordRevision(candidate))
+        return false;
     const incomingStatus = conclusionApprovalStatus(incoming);
     const candidateStatus = conclusionApprovalStatus(candidate);
     if (incomingStatus === "pending")

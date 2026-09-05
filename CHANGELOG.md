@@ -1,5 +1,15 @@
 # Pathmark Changelog
 
+## Unreleased — decision assurance
+
+- Bind conclusion approval to content/scope/decision revisions and supporting evidence revisions. Material edits stage a pending replacement while retaining the approved original.
+- Resolve stable project identities across Git worktrees; stop automatic folder-name collisions and inherited-scope leakage. Filter snapshots by scope before budgeting.
+- Retrieve multi-part questions per intent, report unknowns, add bounded bilingual storage vocabulary, and preserve calibrated semantic reranking.
+- Add reviewable evidence dispositions, shared audit/export scope, and exposure IDs for explicit recall and startup snapshots.
+- Add decision rationale, assumptions, explicit plan-fact checks, exact-revision outcomes, task briefs, and CLI review flows.
+- Include an isolated two-client handoff, 40 controlled benchmark cases, and an observed-user pilot kit. No claim of proven real-task productivity gains.
+
+
 The README keeps the newest user-facing changes at the top. Detailed, immutable release notes live here:
 
 ## Unreleased

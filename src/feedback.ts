@@ -11,6 +11,7 @@ export async function recordMemoryQueryRecall(
   query: string,
   results: SearchResult[],
   tags: string[] = [],
+  channel = "chat",
 ): Promise<string | undefined> {
   if (results.length === 0) return undefined;
   const at = new Date().toISOString();
@@ -23,11 +24,11 @@ export async function recordMemoryQueryRecall(
       "pathmark-activity",
       "activity-recall",
       "role-tool",
-      "channel-chat",
+      `channel-${channel}`,
       ...tags,
       ...commonScopeTags(results),
     ]),
-    source: "pathmark:chat",
+    source: `pathmark:${channel}`,
     createdAt: at,
     updatedAt: at,
     ...(config.activityRetentionDays > 0

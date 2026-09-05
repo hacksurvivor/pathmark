@@ -9,6 +9,21 @@ Carry intent across agents without turning stale code facts into hidden memory.
   <a href="https://scorecard.dev/viewer/?uri=github.com/hacksurvivor/pathmark"><img src="https://api.scorecard.dev/projects/github.com/hacksurvivor/pathmark/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
+## Development preview: catch repeated decision mistakes
+
+The next Pathmark workflow turns an approved correction into a check the next agent can use. Preserve the decision, its rationale, source evidence, and assumptions. A second agent can detect a conflicting plan or identify when the old decision needs reconsideration.
+
+The isolated demo uses two independent MCP clients and synthetic data:
+
+```bash
+npm ci
+npm run demo:handoff
+```
+
+It demonstrates a local-storage conflict, a compliant plan, changed consent, and missing facts. The checker evaluates explicit plan facts; it does not silently authorize actions or verify production state.
+
+This is an **unreleased development preview**, not functionality in the npm version shown below. See the [decision workflow](docs/decision-workflow.md), [pilot kit](docs/decision-pilot.md), and [validation report](docs/validation/README.md). The pilot must establish usefulness beyond a well-maintained instruction file.
+
 ## What's New — v0.1.15
 
 Pathmark v0.1.15 keeps proactive memory useful without making the conversation noisy:

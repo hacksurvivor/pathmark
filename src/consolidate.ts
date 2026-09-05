@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { conclusionApprovalStatus } from "./approval.js";
+import { conclusionApprovalStatus, recordRevision } from "./approval.js";
 import { synthesizeWithCommand } from "./chat.js";
 import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "./memory-safety.js";
 import type { PathmarkStore } from "./store.js";
@@ -66,7 +66,7 @@ export async function prepareConsolidationBatch(
       return Number.isFinite(createdAt) && createdAt >= cutoff;
     })
     .sort(compareEvidenceNewestFirst);
-  const backlog = eligible.filter((record) => !referencedIds.has(record.id));
+  const backlog = eligible.filter((record) => !referencedIds.has(record.id) && !hasReviewedDisposition(record));
   const requestedCursor = options.cursor?.trim() || undefined;
   const cursorRecord = requestedCursor ? eligible.find((record) => record.id === requestedCursor) : undefined;
   if (requestedCursor && !cursorRecord) throw new Error(`Consolidation cursor not found in the eligible evidence: ${requestedCursor}`);
@@ -272,4 +272,8 @@ function clamp(value: number, minimum: number, maximum: number): number {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function hasReviewedDisposition(record: PathmarkRecord): boolean {
+  return Boolean(record.disposition && record.disposition.status !== "needs-review" && record.disposition.revision === recordRevision(record));
 }

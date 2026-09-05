@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { prompt, recall } from "../dist/codex/capture.js";
 import { consolidationNudge, consolidateMemory, prepareConsolidationBatch } from "../dist/consolidate.js";
+import { workspaceTag } from "../dist/project.js";
 import { loadConfig } from "../dist/config.js";
 import { answerMemory, relevantMemorySearch } from "../dist/memory-query.js";
 import { PathmarkStore } from "../dist/store.js";
@@ -111,7 +112,7 @@ try {
     ),
     {
       ...evidence("activity", "ran tests", "role-tool", "2026-08-20T00:04:00.000Z"),
-      tags: ["workspace:consolidate", "project:consolidate", "pathmark-activity", "role-tool"],
+      tags: ["workspace:consolidate", workspaceTag("/workspace/consolidate"), "project:consolidate", "pathmark-activity", "role-tool"],
       activity: {
         type: "tool",
         toolName: "exec",
@@ -212,28 +213,28 @@ try {
     id: "approved-chat-intent",
     kind: "conclusion",
     text: "Signed artifacts are required for releases.",
-    tags: ["workspace:consolidate", "project:consolidate", "approval-approved"],
+    tags: ["workspace:consolidate", workspaceTag("/workspace/consolidate"), "project:consolidate", "approval-approved"],
     source: "test",
   });
   await store.add({
     id: "approved-proactive-intent",
     kind: "conclusion",
     text: "Pathmark should prioritize proactive use of curated memory and user intent.",
-    tags: ["workspace:consolidate", "project:consolidate", "approval-approved"],
+    tags: ["workspace:consolidate", workspaceTag("/workspace/consolidate"), "project:consolidate", "approval-approved"],
     source: "test",
   });
   await store.add({
     id: "approved-conversational-access",
     kind: "conclusion",
     text: "Pathmark should provide conversational access for agents and users to query memory.",
-    tags: ["workspace:consolidate", "project:consolidate", "approval-approved"],
+    tags: ["workspace:consolidate", workspaceTag("/workspace/consolidate"), "project:consolidate", "approval-approved"],
     source: "test",
   });
   await store.add({
     id: "approved-whats-new",
     kind: "conclusion",
     text: "The Pathmark repository should show What's New at the top.",
-    tags: ["workspace:consolidate", "project:consolidate", "approval-approved"],
+    tags: ["workspace:consolidate", workspaceTag("/workspace/consolidate"), "project:consolidate", "approval-approved"],
     source: "test",
   });
   await store.addRecords([
@@ -241,7 +242,7 @@ try {
       id: "legacy-local-evidence",
       kind: "memory",
       text: "Scope inheritance evidence belongs to the consolidate workspace.",
-      tags: ["workspace:consolidate", "project:consolidate", "namespace:pathmark", "role-user"],
+      tags: ["workspace:consolidate", workspaceTag("/workspace/consolidate"), "project:consolidate", "namespace:pathmark", "role-user"],
       source: "test",
     },
     {
@@ -391,7 +392,7 @@ function evidence(id, text, role, createdAt) {
     id,
     kind: "memory",
     text,
-    tags: ["workspace:consolidate", "project:consolidate", role, "session:consolidate-session"],
+    tags: ["workspace:consolidate", workspaceTag("/workspace/consolidate"), "project:consolidate", role, "session:consolidate-session"],
     source: "codex:session:consolidate-session",
     createdAt,
     updatedAt: createdAt,

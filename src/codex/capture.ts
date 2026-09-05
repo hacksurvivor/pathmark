@@ -11,6 +11,10 @@ import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG }
 import { redactSecrets } from "../redact.js";
 import { informativeSearchTerms, selectRelevantResultsByIntent } from "../relevance.js";
 import { PathmarkStore } from "../store.js";
+import { appliesToScope, loadScopeEvidence } from "../scope.js";
+import { relevantMemorySearch } from "../memory-query.js";
+import { projectScope } from "../project.js";
+import { recordMemoryQueryRecall } from "../feedback.js";
 import { buildMemorySnapshot } from "../snapshot.js";
 import { tokenizeSearchText } from "../tokenize.js";
 import type { PathmarkActivity, PathmarkRecordDraft, SearchResult } from "../types.js";
@@ -66,6 +70,15 @@ export async function recall(input: CodexHookInput): Promise<string> {
         ? proactiveConsolidationBatch(store, input, config.consolidationMinEvidence).catch(() => undefined)
         : undefined,
     ]);
+    if (snapshot?.records.length) {
+      const records = await store.getMany(snapshot.records.map((record) => record.id));
+      const recallId = await recordMemoryQueryRecall(store, config, "startup snapshot", [...records.values()].map((record) => ({ record, score: 1, matchedTerms: [] })), primaryPromptRecallTags(input), "snapshot");
+      if (recallId) snapshot.context += `\nPathmark recall ID: ${recallId}`;
+      if ([...records.values()].some((record) => record.decision)) {
+        const tags = input.cwd ? [`project-id:${projectScope(input.cwd).id}`] : primaryPromptRecallTags(input);
+        snapshot.context += `\nDecision checks are available. Use task_brief with ${JSON.stringify({ tags })} to inspect rationale and required facts, then check_decisions for a proposed plan. Missing facts mean unknown; memory never authorizes an action.`;
+      }
+    }
     return joinSnapshot(
       snapshot?.context,
       memoryBlock([], config.memoryFile),
@@ -149,11 +162,10 @@ async function proactivePromptContext(
   if (!query) return "";
 
   const tagFilters = promptRecallTagFilters(input);
-  const scopedConclusions = tagFilters.length > 0
-    ? await Promise.all(
-        tagFilters.map((tags) => store.search({ query, tags, kind: "conclusion", limit: RECALL_SEARCH_LIMIT })),
-      )
-    : [];
+  const scope = primaryPromptRecallTags(input);
+  const conclusionRecords = await store.all({ kind: "conclusion" });
+  const scopeEvidence = await loadScopeEvidence(store, conclusionRecords);
+  const scopedConclusions = [await store.rankRecords(conclusionRecords.filter((record) => appliesToScope(record, scope, scopeEvidence)), query, RECALL_SEARCH_LIMIT)];
   let filtered = selectPromptResults(scopedConclusions, input, promptText, {
     limit: PROMPT_RECALL_LIMIT,
     relevance: { maxRequiredMatches: 2 },
@@ -161,21 +173,27 @@ async function proactivePromptContext(
   if (filtered.length === 0) {
     const globalCandidates = await store.search({ query, kind: "conclusion", limit: RECALL_SEARCH_LIMIT });
     filtered = selectPromptResults(
-      [crossWorkspacePromptCandidates(globalCandidates, promptText)],
+      [crossWorkspacePromptCandidates(globalCandidates.filter((item) => !item.record.evidenceIds?.length || appliesToScope(item.record, scope, scopeEvidence)), promptText)],
       input,
       promptText,
       { limit: PROMPT_RECALL_LIMIT },
     );
   }
   if (filtered.length === 0 && options.rawRecallDays > 0 && options.rawRecallLimit > 0 && tagFilters.length > 0) {
-    const scopedRaw = await Promise.all(
-      tagFilters.map((tags) => store.search({ query, tags, kind: "memory", limit: RECALL_SEARCH_LIMIT })),
-    );
+    const raw = await store.all({ kind: "memory" });
+    const scopedRaw = [await store.rankRecords(raw.filter((record) =>
+      record.tags.some((tag) => tag.startsWith("workspace:") || tag.startsWith("project-id:")) &&
+      appliesToScope(record, scope, scopeEvidence)), query, RECALL_SEARCH_LIMIT)];
     filtered = selectPromptResults(scopedRaw, input, promptText, {
       limit: options.rawRecallLimit,
       rawRecallDays: options.rawRecallDays,
       relevance: { maxRequiredMatches: 2, minRequiredMatches: 2, minCoverage: 0.25 },
     });
+  }
+  if (filtered.some((item) => item.record.kind === "conclusion") && options.rawRecallDays > 0 && options.rawRecallLimit > 0) {
+    const mixed = await relevantMemorySearch(store, loadConfig(), promptText, { tags: scope, applicableScope: true, rawRecallDays: options.rawRecallDays, limit: PROMPT_RECALL_LIMIT });
+    const extras = mixed.filter((item) => item.record.kind === "memory" && !isCurrentImmediatePrompt(item, input, promptText)).slice(0, options.rawRecallLimit);
+    filtered = [...filtered, ...extras].slice(0, PROMPT_RECALL_LIMIT);
   }
   if (filtered.length === 0) return "";
   await store.addRecord(activityRecord({
@@ -322,6 +340,7 @@ function activityRecord(input: {
   if (projectTag) tags.push(projectTag);
   const workspaceTag = workspaceTagFromCwd(input.cwd);
   if (workspaceTag) tags.push(workspaceTag);
+  if (input.cwd) tags.push(...projectScope(input.cwd).tags);
   if (input.redacted) tags.push("redacted");
   const stablePart = input.activity.type === "tool"
     ? input.activity.callId ?? `${input.at}:${input.activity.commandHash ?? input.activity.inputHash ?? input.text}`
@@ -546,6 +565,7 @@ function capturedRecord(input: {
   if (projectTag) tags.push(projectTag);
   const workspaceTag = workspaceTagFromCwd(input.cwd);
   if (workspaceTag) tags.push(workspaceTag);
+  if (input.cwd) tags.push(...projectScope(input.cwd).tags);
   if (input.immediatePrompt) tags.push(IMMEDIATE_PROMPT_TAG);
   if (redacted.redacted || redacted.text.includes("[REDACTED]")) tags.push("redacted");
   const normalizedText = normalizeCapturedText(redacted.text);
@@ -645,8 +665,7 @@ function promptRecallTagFilters(input: CodexHookInput): string[][] {
   const filters: string[][] = [];
   const workspaceTag = workspaceTagFromCwd(input.cwd);
   if (workspaceTag) filters.push([workspaceTag]);
-  const projectTag = projectTagFromCwd(input.cwd);
-  if (projectTag) filters.push([projectTag]);
+  if (input.cwd) filters.push([`project-id:${projectScope(input.cwd).id}`]);
   const session = input.session_id?.trim();
   if (session) filters.push([`session:${session}`]);
   return filters;
@@ -656,6 +675,7 @@ function primaryPromptRecallTags(input: CodexHookInput): string[] {
   const tags: string[] = [];
   const workspaceTag = workspaceTagFromCwd(input.cwd);
   if (workspaceTag) tags.push(workspaceTag);
+  if (input.cwd) tags.push(...projectScope(input.cwd).tags);
   const projectTag = projectTagFromCwd(input.cwd);
   if (projectTag) tags.push(projectTag);
   const session = input.session_id?.trim();

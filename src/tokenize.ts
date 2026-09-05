@@ -2,6 +2,13 @@ const WORD_RE = /[\p{L}\p{N}_'-]+/gu;
 const CJK_RUN_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
 const CJK_CHAR_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const SEARCH_ALIASES: Record<string, string[]> = {
+  clients: ["customer"], client: ["customer"], customers: ["customer"],
+  клиент: ["customer"], клиента: ["customer"], клиентов: ["customer"], клиентские: ["customer"],
+  records: ["data"], information: ["data"], данные: ["data"], данных: ["data"],
+  cloud: ["remote"], hosted: ["remote"], external: ["remote"], облако: ["remote"], облаке: ["remote"], облачный: ["remote"],
+  upload: ["storage"], uploaded: ["storage"], uploading: ["storage"], отправлять: ["storage"], хранить: ["storage"], хранение: ["storage"],
+  laptop: ["local"], computer: ["local"], локально: ["local"], локальный: ["local"],
+  colors: ["color"], colours: ["color"], preferred: ["prefer"], prefers: ["prefer"],
   architectures: ["design"],
   architecture: ["design"],
   calls: ["call"],

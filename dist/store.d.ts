@@ -57,6 +57,7 @@ export declare class PathmarkStore {
         tags?: string[];
         decidedBy?: string;
         note?: string;
+        expectedRevision?: string;
     }): Promise<PathmarkRecord | undefined>;
     count(): Promise<number>;
     recordsWithTags(tags: string[], options?: {
@@ -87,6 +88,8 @@ export declare class PathmarkStore {
         tags?: string[];
         source?: string;
         expiresAt?: string | null;
+        decision?: PathmarkRecord["decision"];
+        disposition?: PathmarkRecord["disposition"];
     }): Promise<PathmarkRecord | undefined>;
     updateActivities(updates: Map<string, PathmarkActivity>): Promise<number>;
     supersede(id: string, input: PathmarkRecordDraft): Promise<PathmarkRecord | undefined>;
@@ -104,6 +107,7 @@ export declare class PathmarkStore {
         file: string;
         recordCount: number;
     }>;
+    rankRecords(records: PathmarkRecord[], query: string, limit: number): Promise<SearchResult[]>;
     search(input: {
         query: string;
         limit?: number;

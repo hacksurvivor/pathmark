@@ -15,7 +15,12 @@ export async function rerankWithCommand(input) {
     });
     const stdout = await runShellCommand(input.command, payload, input.timeoutMs);
     const parsed = JSON.parse(stdout);
-    const ids = Array.isArray(parsed)
+    const scored = typeof parsed === "object" && parsed !== null && "results" in parsed && Array.isArray(parsed.results)
+        ? parsed.results : undefined;
+    if (scored && scored.some((item) => typeof item.id !== "string" || typeof item.score !== "number" || !Number.isFinite(item.score) || item.score < 0 || item.score > 1)) {
+        throw new Error("Reranker scores must be finite values between 0 and 1");
+    }
+    const ids = scored ? scored.map((item) => item.id) : Array.isArray(parsed)
         ? parsed
         : typeof parsed === "object" && parsed !== null && Array.isArray(parsed.ids)
             ? parsed.ids
@@ -31,7 +36,8 @@ export async function rerankWithCommand(input) {
         if (!candidate || seen.has(candidate.record.id))
             continue;
         seen.add(candidate.record.id);
-        ranked.push({ ...candidate, retrieval: "hybrid" });
+        const score = scored?.find((item) => item.id === id)?.score;
+        ranked.push({ ...candidate, retrieval: "hybrid", ...(score === undefined ? {} : { semanticScore: score, semanticQuery: input.query }) });
     }
     for (const candidate of input.candidates) {
         if (!seen.has(candidate.record.id))

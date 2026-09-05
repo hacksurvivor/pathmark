@@ -4,15 +4,15 @@ import { z } from "zod";
 import { auditMemory } from "./audit.js";
 import { consolidateMemory } from "./consolidate.js";
 import { loadConfig } from "./config.js";
-import { recordRecallFeedback } from "./feedback.js";
+import { recordMemoryQueryRecall, recordRecallFeedback } from "./feedback.js";
 import { jsonText, publicConfig, summarizeRecords, summarizeSearch, usedMemories } from "./format.js";
-import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "./memory-safety.js";
-import { answerMemory } from "./memory-query.js";
+import { answerMemory, relevantMemorySearch } from "./memory-query.js";
 import { redactSecrets } from "./redact.js";
-import { selectRelevantResultsByIntent } from "./relevance.js";
 import { namespaceTag, PathmarkStore } from "./store.js";
 import { sessionTrace } from "./session-trace.js";
 import { buildMemorySnapshot } from "./snapshot.js";
+import { decisionSchema } from "./decision-schema.js";
+import { taskBrief, checkDecisions, decisionOutcome, reviewQueue, reviewEvidence } from "./decisions.js";
 import { conclusionApprovalStatus } from "./approval.js";
 
 export async function runMcpServer(): Promise<void> {
@@ -69,6 +69,7 @@ export async function runMcpServer(): Promise<void> {
       description: "Propose a durable higher-signal conclusion. Approval is required by default before it can be recalled.",
       inputSchema: {
         text: z.string().min(1).describe("Conclusion text to save."),
+        decision: decisionSchema.optional().describe("Optional decision rationale, assumptions, and checks against explicit plan facts."),
         tags: z.array(z.string()).optional(),
         source: z.string().optional(),
         namespace: z.string().min(1).optional(),
@@ -80,7 +81,8 @@ export async function runMcpServer(): Promise<void> {
           .describe("Raw memory IDs supporting this conclusion. Used for provenance and consolidation coverage."),
       },
     },
-    async ({ text, tags, source, namespace, expiresAt, evidenceIds }) => {
+    async ({ text, tags, source, namespace, expiresAt, evidenceIds, decision }) => {
+      if (decision && !evidenceIds?.length) throw new Error("A decision requires supporting evidenceIds");
       const conclusionTags = scopedTags(tags, namespace ?? config.defaultNamespace);
       const input = {
         text: safeWriteText(text, config.redactMcpWrites),
@@ -88,6 +90,7 @@ export async function runMcpServer(): Promise<void> {
         source,
         expiresAt,
         evidenceIds: await validatedEvidenceIds(store, evidenceIds, conclusionTags),
+        ...(decision ? { decision: decisionSchema.parse(JSON.parse(safeWriteText(JSON.stringify(decision), config.redactMcpWrites))) } : {}),
       };
       if (config.conclusionApprovalRequired) {
         const { record, created } = await store.proposeConclusion(input, { dedupe: true });
@@ -193,7 +196,9 @@ export async function runMcpServer(): Promise<void> {
       const results = ids
         ? (await store.searchByIds({ ids, query, tags: scoped, kind })).slice(0, selectedLimit)
         : await relevantSearch(query, limit, scoped, kind);
+      const recallId = await recordMemoryQueryRecall(store, config, query, results, scoped, "explicit");
       return jsonText({
+        recallId: recallId ?? null,
         mode: "transparent_recall",
         context: summarizeSearch(results),
         usedMemories: usedMemories(results),
@@ -294,12 +299,13 @@ export async function runMcpServer(): Promise<void> {
         text: z.string().min(1).optional(),
         tags: z.array(z.string()).optional(),
         namespace: z.string().min(1).optional(),
+        expectedRevision: z.string().min(1).optional(),
         decidedBy: z.string().min(1).max(200).optional(),
         note: z.string().max(1_000).optional(),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ id, text, tags, namespace, decidedBy, note }) => {
+    async ({ id, text, tags, namespace, decidedBy, note, expectedRevision }) => {
       const existing = await store.get(id);
       const selectedNamespace = namespace ?? config.defaultNamespace;
       const approvalTags =
@@ -310,6 +316,7 @@ export async function runMcpServer(): Promise<void> {
         ...(text === undefined ? {} : { text: safeWriteText(text, config.redactMcpWrites) }),
         ...(approvalTags === undefined ? {} : { tags: approvalTags }),
         decidedBy,
+        expectedRevision,
         note,
       });
       return jsonText({ approved: approved ?? null });
@@ -323,13 +330,14 @@ export async function runMcpServer(): Promise<void> {
       description: "Reject one pending conclusion while retaining it in the canonical audit trail and excluding it from recall.",
       inputSchema: {
         id: z.string().min(1),
+        expectedRevision: z.string().min(1).optional(),
         decidedBy: z.string().min(1).max(200).optional(),
         note: z.string().max(1_000).optional(),
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
-    async ({ id, decidedBy, note }) =>
-      jsonText({ rejected: (await store.decideConclusion(id, "rejected", { decidedBy, note })) ?? null }),
+    async ({ id, decidedBy, note, expectedRevision }) =>
+      jsonText({ rejected: (await store.decideConclusion(id, "rejected", { decidedBy, note, expectedRevision })) ?? null }),
   );
 
   server.registerTool(
@@ -378,11 +386,12 @@ export async function runMcpServer(): Promise<void> {
         text: z.string().min(1).optional(),
         tags: z.array(z.string()).optional(),
         source: z.string().optional(),
+        decision: decisionSchema.optional(),
         namespace: z.string().min(1).optional(),
         expiresAt: z.string().nullable().optional(),
       },
     },
-    async ({ id, text, tags, source, namespace, expiresAt }) => {
+    async ({ id, text, tags, source, namespace, expiresAt, decision }) => {
       const selectedNamespace = namespace ?? config.defaultNamespace;
       const existing = tags === undefined && selectedNamespace ? await store.get(id) : undefined;
       const scoped =
@@ -393,9 +402,10 @@ export async function runMcpServer(): Promise<void> {
         ...(text === undefined ? {} : { text: safeWriteText(text, config.redactMcpWrites) }),
         ...(scoped === undefined ? {} : { tags: scoped }),
         ...(source === undefined ? {} : { source }),
+        ...(decision === undefined ? {} : { decision: decisionSchema.parse(JSON.parse(safeWriteText(JSON.stringify(decision), config.redactMcpWrites))) }),
         ...(expiresAt === undefined ? {} : { expiresAt }),
       });
-      return jsonText({ updated: updated ?? null });
+      return jsonText({ status: updated?.kind === "conclusion" ? conclusionApprovalStatus(updated) : "updated", updated: updated ?? null });
     },
   );
 
@@ -606,6 +616,28 @@ export async function runMcpServer(): Promise<void> {
     async ({ question, limit, tags, namespace, kind }) => answerFromMemory(question, limit, tags, namespace, kind),
   );
 
+  const scopeSchema = { tags: z.array(z.string().min(1)).max(30).optional(), namespace: z.string().min(1).optional() };
+  server.registerTool("task_brief", {
+    description: "Return applicable approved decisions, their rationale, expected plan fields, and evidence for an agent handoff.",
+    inputSchema: { ...scopeSchema, limit: z.number().int().min(1).max(50).optional() },
+  }, async ({ tags, namespace, limit }) => jsonText(await taskBrief(store, config, scopedTags(tags, namespace ?? config.defaultNamespace), limit)));
+  server.registerTool("check_decisions", {
+    description: "Compare explicit plan facts with approved decision revisions. Returns pass, conflict, or unknown; changed assumptions request reconsideration. Prose alone cannot prove facts or authorize actions.",
+    inputSchema: { ...scopeSchema, facts: z.record(z.union([z.string().max(4000), z.number().finite(), z.boolean()])), plan: z.string().max(4000).optional(), limit: z.number().int().min(1).max(50).optional() },
+  }, async ({ tags, namespace, facts, plan, limit }) => jsonText(await checkDecisions(store, config, { tags: scopedTags(tags, namespace ?? config.defaultNamespace), facts, plan, limit })));
+  server.registerTool("decision_outcome", {
+    description: "Label whether a decision check was useful, a false alarm, missed a conflict, changed a decision, or had no effect. Preserves the exact checked revisions.",
+    inputSchema: { checkId: z.string().min(1), outcome: z.enum(["useful", "false-alarm", "missed-conflict", "decision-changed", "no-effect"]), note: z.string().max(1000).optional() },
+  }, async (input) => jsonText(await decisionOutcome(store, config, input)));
+  server.registerTool("review_queue", {
+    description: "Show a small scoped queue of pending conclusions and unreviewed evidence, with revision IDs and source excerpts.",
+    inputSchema: { ...scopeSchema, limit: z.number().int().min(1).max(50).optional() },
+  }, async ({ tags, namespace, limit }) => jsonText(await reviewQueue(store, scopedTags(tags, namespace ?? config.defaultNamespace), limit)));
+  server.registerTool("review_evidence", {
+    description: "Record that an exact evidence revision was reviewed, including when nothing durable should be remembered. Editing evidence reopens review.",
+    inputSchema: { id: z.string().min(1), revision: z.string().min(1), status: z.enum(["incorporated", "duplicate", "temporary", "rejected", "needs-review"]), reviewedBy: z.string().min(1).max(200), note: z.string().max(1000).optional() },
+  }, async (input) => jsonText(await reviewEvidence(store, input)));
+
   await store.ensureReady();
   await server.connect(new StdioServerTransport());
 
@@ -631,17 +663,7 @@ export async function runMcpServer(): Promise<void> {
     tags: string[],
     kind: "memory" | "conclusion" | undefined,
   ) {
-    const selectedLimit = limit ?? config.maxSearchResults;
-    const candidateLimit = query.trim() ? Math.min(50, Math.max(20, selectedLimit * 4)) : selectedLimit;
-    const candidates = (await store.search({ query, limit: candidateLimit, tags, kind }))
-      .filter(
-        (result) =>
-          !result.record.tags.includes("pathmark-activity") &&
-          !result.record.tags.includes(QUARANTINED_MEMORY_TAG) &&
-          !isUnsafeMemoryText(result.record.text) &&
-          (result.record.kind !== "memory" || !isInternalInstructionText(result.record.text)),
-      );
-    return query.trim() ? selectRelevantResultsByIntent(candidates, query, selectedLimit) : candidates.slice(0, selectedLimit);
+    return relevantMemorySearch(store, config, query, { limit, tags, kind });
   }
 }
 
@@ -661,7 +683,7 @@ async function validatedEvidenceIds(
   if (!ids) return undefined;
   const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
   const scopeTags = conclusionTags.filter((tag) =>
-    ["namespace:", "workspace:", "project:", "session:"].some((prefix) => tag.startsWith(prefix)),
+    ["namespace:", "workspace:", "project:", "project-id:", "session:"].some((prefix) => tag.startsWith(prefix)),
   );
   for (const id of unique) {
     const evidence = await store.get(id);

@@ -94,33 +94,11 @@ try {
   assert.deepEqual(activityEntries[1].relevantIds, ["relevant-memory"]);
   assert.deepEqual(activityEntries[2].irrelevantIds, ["relevant-memory"]);
 
-  const readOnlyChat = await answerMemory(
-    {
-      search: async ({ kind }) =>
-        kind === "conclusion"
-          ? [
-              {
-                record: {
-                  id: "read-only-conclusion",
-                  kind: "conclusion",
-                  text: "Read-only stores can still answer from approved conclusions.",
-                  tags: ["approval-approved"],
-                  source: "feedback-test",
-                  createdAt: "2026-08-25T00:00:00.000Z",
-                  updatedAt: "2026-08-25T00:00:00.000Z",
-                },
-                score: 1,
-                matchedTerms: ["read", "only", "conclusions"],
-              },
-            ]
-          : [],
-      add: async () => {
-        throw new Error("read-only store");
-      },
-    },
-    config,
-    "Can read-only stores answer from conclusions?",
-  );
+  await store.add({ id: "read-only-conclusion", kind: "conclusion", text: "Read-only stores can still answer from approved conclusions.", tags: ["read-only-test"], source: "feedback-test" });
+  const priorAdd = store.add.bind(store);
+  store.add = async () => { throw new Error("read-only store"); };
+  const readOnlyChat = await answerMemory(store, config, "Can read-only stores answer from conclusions?", { tags: ["read-only-test"] });
+  store.add = priorAdd;
   assert.equal(readOnlyChat.answer, "Read-only stores can still answer from approved conclusions.");
   assert.equal(readOnlyChat.recallId, null);
 

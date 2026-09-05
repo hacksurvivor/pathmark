@@ -1,0 +1,2137 @@
+{
+  "generatedAt": "2026-09-05T03:45:43.498Z",
+  "kind": "controlled-decision-judgment",
+  "cases": 40,
+  "deterministic": {
+    "correct": 40,
+    "p95Ms": 10.358249999999998
+  },
+  "limitations": [
+    "Synthetic cases test decision judgments, not completed coding tasks or real user correction rates.",
+    "The proposed 30% correction-reduction product gate requires an observed user/task pilot.",
+    "One batched model run per condition; no statistical confidence or longitudinal product-effectiveness claim. Baseline and curated conditions receive the same decision content when retrieval succeeds."
+  ],
+  "modelEvaluation": {
+    "provider": "codex-cli",
+    "model": "CLI default (exact model identifier not captured)",
+    "baselineVersion": "0.1.15",
+    "conditions": [
+      {
+        "condition": "no-memory",
+        "correct": 20,
+        "total": 40,
+        "elapsedMs": 38517.583584,
+        "inputChars": 6684,
+        "cases": [
+          {
+            "id": "transcripts-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "transcripts-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-pass",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "transcripts-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "transcripts-changed-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "transcripts-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-russian-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "transcripts-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "database-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-pass",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "database-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "database-changed-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "database-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-russian-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "database-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "retries-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-pass",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "retries-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "retries-changed-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "retries-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-russian-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "retries-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "release-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-pass",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "release-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "release-changed-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "release-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-russian-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "release-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "messages-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-pass",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "messages-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "messages-changed-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "messages-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-russian-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "messages-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          }
+        ]
+      },
+      {
+        "condition": "curated-instructions",
+        "correct": 40,
+        "total": 40,
+        "elapsedMs": 32842.132583,
+        "inputChars": 16596,
+        "cases": [
+          {
+            "id": "transcripts-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-pass",
+              "status": "pass",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "transcripts-changed-assumption",
+              "status": "unknown",
+              "reconsider": true
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-russian-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-pass",
+              "status": "pass",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "database-changed-assumption",
+              "status": "unknown",
+              "reconsider": true
+            },
+            "correct": true
+          },
+          {
+            "id": "database-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-russian-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-pass",
+              "status": "pass",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "retries-changed-assumption",
+              "status": "unknown",
+              "reconsider": true
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-russian-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-pass",
+              "status": "pass",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "release-changed-assumption",
+              "status": "unknown",
+              "reconsider": true
+            },
+            "correct": true
+          },
+          {
+            "id": "release-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-russian-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-pass",
+              "status": "pass",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "messages-changed-assumption",
+              "status": "unknown",
+              "reconsider": true
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-russian-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          }
+        ]
+      },
+      {
+        "condition": "baseline-pathmark",
+        "correct": 30,
+        "total": 40,
+        "elapsedMs": 32467.961750000002,
+        "inputChars": 12348,
+        "cases": [
+          {
+            "id": "transcripts-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "transcripts-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-pass",
+              "status": "pass",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "transcripts-changed-assumption",
+              "status": "unknown",
+              "reconsider": true
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-russian-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "transcripts-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "database-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-pass",
+              "status": "pass",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "database-changed-assumption",
+              "status": "unknown",
+              "reconsider": true
+            },
+            "correct": true
+          },
+          {
+            "id": "database-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-russian-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "database-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "retries-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-pass",
+              "status": "pass",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "retries-changed-assumption",
+              "status": "unknown",
+              "reconsider": true
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-russian-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "retries-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "release-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-pass",
+              "status": "pass",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "release-changed-assumption",
+              "status": "unknown",
+              "reconsider": true
+            },
+            "correct": true
+          },
+          {
+            "id": "release-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-russian-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "release-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "messages-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-pass",
+              "status": "pass",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "messages-changed-assumption",
+              "status": "unknown",
+              "reconsider": true
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-russian-conflict",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": false
+          },
+          {
+            "id": "messages-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          }
+        ]
+      },
+      {
+        "condition": "decision-checks",
+        "correct": 40,
+        "total": 40,
+        "elapsedMs": 35066.25445800001,
+        "inputChars": 21885,
+        "cases": [
+          {
+            "id": "transcripts-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-pass",
+              "status": "pass",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "transcripts-changed-assumption",
+              "status": "unknown",
+              "reconsider": true
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-russian-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "transcripts-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "transcripts-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-pass",
+              "status": "pass",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "database-changed-assumption",
+              "status": "unknown",
+              "reconsider": true
+            },
+            "correct": true
+          },
+          {
+            "id": "database-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-russian-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "database-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "database-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-pass",
+              "status": "pass",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "retries-changed-assumption",
+              "status": "unknown",
+              "reconsider": true
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-russian-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "retries-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "retries-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-pass",
+              "status": "pass",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "release-changed-assumption",
+              "status": "unknown",
+              "reconsider": true
+            },
+            "correct": true
+          },
+          {
+            "id": "release-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-russian-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "release-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "release-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-pass",
+            "expected": {
+              "status": "pass",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-pass",
+              "status": "pass",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-missing-fact",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-missing-fact",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-changed-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": true
+            },
+            "actual": {
+              "id": "messages-changed-assumption",
+              "status": "unknown",
+              "reconsider": true
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-missing-assumption",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-missing-assumption",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-wrong-type",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-wrong-type",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-russian-conflict",
+            "expected": {
+              "status": "conflict",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-russian-conflict",
+              "status": "conflict",
+              "reconsider": false
+            },
+            "correct": true
+          },
+          {
+            "id": "messages-different-project",
+            "expected": {
+              "status": "unknown",
+              "reconsider": false
+            },
+            "actual": {
+              "id": "messages-different-project",
+              "status": "unknown",
+              "reconsider": false
+            },
+            "correct": true
+          }
+        ]
+      }
+    ]
+  }
+}

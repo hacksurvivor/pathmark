@@ -117,6 +117,8 @@ export function selectRelevantResults(
   );
   const minCoverage = Math.max(0, Math.min(options.minCoverage ?? 0, 1));
 
+  const semantic = signalResults.filter((result) => (result.semanticScore ?? 0) >= 0.8 && result.semanticQuery === query)
+    .sort((a, b) => (b.semanticScore ?? 0) - (a.semanticScore ?? 0));
   const ranked = signalResults
     .map((result): RankedResult => {
       const textTerms = informativeSearchTerms(result.record.text);
@@ -150,7 +152,7 @@ export function selectRelevantResults(
         b.result.record.createdAt.localeCompare(a.result.record.createdAt),
     );
 
-  if (ranked.length === 0) return [];
+  if (ranked.length === 0) return semantic.slice(0, limit);
   const cutoff = ranked[0].relevance * RELATIVE_RELEVANCE_CUTOFF;
   const selected: RankedResult[] = [];
 
@@ -171,7 +173,9 @@ export function selectRelevantResults(
     if (selected.length >= limit) break;
   }
 
-  return selected.map((candidate) => candidate.result);
+  const merged = new Map(semantic.map((result) => [result.record.id, result]));
+  for (const candidate of selected) if (!merged.has(candidate.result.record.id)) merged.set(candidate.result.record.id, candidate.result);
+  return [...merged.values()].slice(0, limit);
 }
 
 export function selectRelevantResultsByIntent(
@@ -207,7 +211,7 @@ export function selectRelevantResultsByIntent(
 
 export function splitQueryIntents(query: string): string[] {
   const pieces = query
-    .split(/(?:[,;\n]+|\b(?:and|also|plus)\b|\b(?:и|также)\b)/giu)
+    .split(/(?:[,;\n]+|\b(?:and|also|plus)\b|(?<![\p{L}])(?:и|также)(?![\p{L}]))/giu)
     .map((piece) => piece.trim())
     .filter((piece) => informativeSearchTerms(piece).size > 0);
   if (pieces.length <= 1) return [query];
