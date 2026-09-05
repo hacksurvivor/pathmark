@@ -41,4 +41,6 @@ This is one batched model call per condition, not 40 completed coding tasks. The
 
 ## Work that remains
 
-Verify the actual model-to-model handoff in a context that permits the requested synthetic writes. Then run the [two-week pilot](../decision-pilot.md) with consenting participants and fixed model versions, measuring completed tasks, repeated corrections, stale-memory errors and review effort. No participants have been recruited, messages sent, or user study completed. Publishing, shared installation and a broad product pivot remain separate decisions.
+Follow-up: the [executed coding comparison](coding-pilot/README.md) found 8/8 accepted implementations in every condition, including curated instructions with the same checks. Pathmark used 3.11 times the prompt characters of curated instructions; no quality advantage was demonstrated. A prospective one-participant observation now covers three user-selected tasks: co·od icons, Mac implementation, and Pathmark itself, with separate outcomes.
+
+Verify the actual model-to-model handoff in a context that permits the requested synthetic writes. Broader recruitment and the [two-week pilot](../decision-pilot.md) remain pending. Measure completed tasks, repeated corrections, stale-memory errors and review effort. The user has selected a first task and its agent has received a local brief; no external participant outreach or completed user study is claimed. Publishing, shared installation and a broad product pivot remain separate decisions.

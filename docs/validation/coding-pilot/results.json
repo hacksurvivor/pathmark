@@ -1,0 +1,1933 @@
+{
+  "status": "completed",
+  "generatedAt": "2026-09-05T04:06:36.305Z",
+  "model": "gpt-6-astra",
+  "runnerVersion": "codex-cli 0.153.4",
+  "protocol": {
+    "frozenAt": "2026-09-05T04:03:19.967Z",
+    "runnerVersion": "codex-cli 0.153.4",
+    "fixtureSha256": "d170537dec2ff597ddadd4815621da4d299cc9824ff0973cc26fe87960a45650",
+    "runnerSha256": "b1b3914342a7a38a4a54aa8b40442cec0929d4ba4c2a38cea5b8b1f430098739",
+    "tasks": [
+      "transcript-jobs",
+      "retry-policy",
+      "event-export",
+      "money-parser",
+      "workspace-selection",
+      "changed-database",
+      "russian-attachment",
+      "changed-retention"
+    ],
+    "conditionOrder": [
+      "curated-instructions",
+      "pathmark",
+      "curated-plus-checks"
+    ],
+    "design": "Eight synthetic implementation tasks per condition. One initial batched model call and one review batched call per condition; fresh sessions. Fixed tests withheld from both calls. Same exact model, same instruction content and two-call budget. Code is executed locally, no external side effects.",
+    "primaryMetric": "All acceptance tests pass after review",
+    "secondaryMetrics": [
+      "Initial acceptance failures",
+      "Failures repaired in review",
+      "New failures introduced in review",
+      "Elapsed inference time",
+      "Prompt characters"
+    ],
+    "nonMetrics": [
+      "No human repeated corrections, review minutes, retention or willingness to pay are inferred."
+    ],
+    "control": "curated-plus-checks receives the same predicate results without Pathmark provenance, isolating benefit of executable checks from memory packaging.",
+    "stopRule": "Run every condition once; retain failures; do not tune fixtures or prompts after seeing outcomes."
+  },
+  "results": [
+    {
+      "condition": "curated-instructions",
+      "initialAccepted": 8,
+      "finalAccepted": 8,
+      "total": 8,
+      "repaired": 0,
+      "introducedFailures": 0,
+      "metadata": [
+        {
+          "model": "gpt-6-astra",
+          "elapsedMs": 37049.784459,
+          "inputChars": 5550,
+          "reportedTokens": "25042"
+        },
+        {
+          "model": "gpt-6-astra",
+          "elapsedMs": 34439.194749999995,
+          "inputChars": 7286,
+          "reportedTokens": "25535"
+        }
+      ],
+      "initialScores": [
+        {
+          "taskId": "transcript-jobs",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "id": "a",
+                  "engine": "whisper",
+                  "destination": "local"
+                },
+                {
+                  "id": "b",
+                  "engine": "whisper",
+                  "destination": "local"
+                }
+              ],
+              "expected": [
+                {
+                  "id": "a",
+                  "engine": "whisper",
+                  "destination": "local"
+                },
+                {
+                  "id": "b",
+                  "engine": "whisper",
+                  "destination": "local"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "retry-policy",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "retry": true,
+                "delayMs": 200
+              },
+              "expected": {
+                "retry": true,
+                "delayMs": 200
+              }
+            },
+            {
+              "index": 2,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            },
+            {
+              "index": 3,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "event-export",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "id": "a",
+                  "type": "view"
+                },
+                {
+                  "id": "b",
+                  "type": "unknown"
+                }
+              ],
+              "expected": [
+                {
+                  "id": "a",
+                  "type": "view"
+                },
+                {
+                  "id": "b",
+                  "type": "unknown"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "money-parser",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "total": 1031,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 1031,
+                "unit": "cents"
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "total": 100000520,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 100000520,
+                "unit": "cents"
+              }
+            },
+            {
+              "index": 2,
+              "passed": true,
+              "actual": {
+                "total": 0,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 0,
+                "unit": "cents"
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "workspace-selection",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                "a",
+                "c"
+              ],
+              "expected": [
+                "a",
+                "c"
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "changed-database",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "database": "postgres",
+                "count": 2
+              },
+              "expected": {
+                "database": "postgres",
+                "count": 2
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "database": "sqlite",
+                "count": 0
+              },
+              "expected": {
+                "database": "sqlite",
+                "count": 0
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "russian-attachment",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "name": "a.TXT",
+                  "storage": "device-only"
+                },
+                {
+                  "name": "c.txt",
+                  "storage": "device-only"
+                }
+              ],
+              "expected": [
+                {
+                  "name": "a.TXT",
+                  "storage": "device-only"
+                },
+                {
+                  "name": "c.txt",
+                  "storage": "device-only"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "changed-retention",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "kept": [
+                  0,
+                  7,
+                  8,
+                  30
+                ],
+                "retentionDays": 30
+              },
+              "expected": {
+                "kept": [
+                  0,
+                  7,
+                  8,
+                  30
+                ],
+                "retentionDays": 30
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "kept": [],
+                "retentionDays": 30
+              },
+              "expected": {
+                "kept": [],
+                "retentionDays": 30
+              }
+            }
+          ]
+        }
+      ],
+      "finalScores": [
+        {
+          "taskId": "transcript-jobs",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "id": "a",
+                  "engine": "whisper",
+                  "destination": "local"
+                },
+                {
+                  "id": "b",
+                  "engine": "whisper",
+                  "destination": "local"
+                }
+              ],
+              "expected": [
+                {
+                  "id": "a",
+                  "engine": "whisper",
+                  "destination": "local"
+                },
+                {
+                  "id": "b",
+                  "engine": "whisper",
+                  "destination": "local"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "retry-policy",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "retry": true,
+                "delayMs": 200
+              },
+              "expected": {
+                "retry": true,
+                "delayMs": 200
+              }
+            },
+            {
+              "index": 2,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            },
+            {
+              "index": 3,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "event-export",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "id": "a",
+                  "type": "view"
+                },
+                {
+                  "id": "b",
+                  "type": "unknown"
+                }
+              ],
+              "expected": [
+                {
+                  "id": "a",
+                  "type": "view"
+                },
+                {
+                  "id": "b",
+                  "type": "unknown"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "money-parser",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "total": 1031,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 1031,
+                "unit": "cents"
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "total": 100000520,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 100000520,
+                "unit": "cents"
+              }
+            },
+            {
+              "index": 2,
+              "passed": true,
+              "actual": {
+                "total": 0,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 0,
+                "unit": "cents"
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "workspace-selection",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                "a",
+                "c"
+              ],
+              "expected": [
+                "a",
+                "c"
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "changed-database",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "database": "postgres",
+                "count": 2
+              },
+              "expected": {
+                "database": "postgres",
+                "count": 2
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "database": "sqlite",
+                "count": 0
+              },
+              "expected": {
+                "database": "sqlite",
+                "count": 0
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "russian-attachment",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "name": "a.TXT",
+                  "storage": "device-only"
+                },
+                {
+                  "name": "c.txt",
+                  "storage": "device-only"
+                }
+              ],
+              "expected": [
+                {
+                  "name": "a.TXT",
+                  "storage": "device-only"
+                },
+                {
+                  "name": "c.txt",
+                  "storage": "device-only"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "changed-retention",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "kept": [
+                  0,
+                  7,
+                  8,
+                  30
+                ],
+                "retentionDays": 30
+              },
+              "expected": {
+                "kept": [
+                  0,
+                  7,
+                  8,
+                  30
+                ],
+                "retentionDays": 30
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "kept": [],
+                "retentionDays": 30
+              },
+              "expected": {
+                "kept": [],
+                "retentionDays": 30
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "condition": "pathmark",
+      "initialAccepted": 8,
+      "finalAccepted": 8,
+      "total": 8,
+      "repaired": 0,
+      "introducedFailures": 0,
+      "metadata": [
+        {
+          "model": "gpt-6-astra",
+          "elapsedMs": 29272.195374999996,
+          "inputChars": 16227,
+          "reportedTokens": "26442"
+        },
+        {
+          "model": "gpt-6-astra",
+          "elapsedMs": 33883.907708,
+          "inputChars": 23696,
+          "reportedTokens": "28867"
+        }
+      ],
+      "initialScores": [
+        {
+          "taskId": "transcript-jobs",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "id": "a",
+                  "engine": "whisper",
+                  "destination": "local"
+                },
+                {
+                  "id": "b",
+                  "engine": "whisper",
+                  "destination": "local"
+                }
+              ],
+              "expected": [
+                {
+                  "id": "a",
+                  "engine": "whisper",
+                  "destination": "local"
+                },
+                {
+                  "id": "b",
+                  "engine": "whisper",
+                  "destination": "local"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "retry-policy",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "retry": true,
+                "delayMs": 200
+              },
+              "expected": {
+                "retry": true,
+                "delayMs": 200
+              }
+            },
+            {
+              "index": 2,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            },
+            {
+              "index": 3,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "event-export",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "id": "a",
+                  "type": "view"
+                },
+                {
+                  "id": "b",
+                  "type": "unknown"
+                }
+              ],
+              "expected": [
+                {
+                  "id": "a",
+                  "type": "view"
+                },
+                {
+                  "id": "b",
+                  "type": "unknown"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "money-parser",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "total": 1031,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 1031,
+                "unit": "cents"
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "total": 100000520,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 100000520,
+                "unit": "cents"
+              }
+            },
+            {
+              "index": 2,
+              "passed": true,
+              "actual": {
+                "total": 0,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 0,
+                "unit": "cents"
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "workspace-selection",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                "a",
+                "c"
+              ],
+              "expected": [
+                "a",
+                "c"
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "changed-database",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "database": "postgres",
+                "count": 2
+              },
+              "expected": {
+                "database": "postgres",
+                "count": 2
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "database": "sqlite",
+                "count": 0
+              },
+              "expected": {
+                "database": "sqlite",
+                "count": 0
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "russian-attachment",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "name": "a.TXT",
+                  "storage": "device-only"
+                },
+                {
+                  "name": "c.txt",
+                  "storage": "device-only"
+                }
+              ],
+              "expected": [
+                {
+                  "name": "a.TXT",
+                  "storage": "device-only"
+                },
+                {
+                  "name": "c.txt",
+                  "storage": "device-only"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "changed-retention",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "kept": [
+                  0,
+                  7,
+                  8,
+                  30
+                ],
+                "retentionDays": 30
+              },
+              "expected": {
+                "kept": [
+                  0,
+                  7,
+                  8,
+                  30
+                ],
+                "retentionDays": 30
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "kept": [],
+                "retentionDays": 30
+              },
+              "expected": {
+                "kept": [],
+                "retentionDays": 30
+              }
+            }
+          ]
+        }
+      ],
+      "finalScores": [
+        {
+          "taskId": "transcript-jobs",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "id": "a",
+                  "engine": "whisper",
+                  "destination": "local"
+                },
+                {
+                  "id": "b",
+                  "engine": "whisper",
+                  "destination": "local"
+                }
+              ],
+              "expected": [
+                {
+                  "id": "a",
+                  "engine": "whisper",
+                  "destination": "local"
+                },
+                {
+                  "id": "b",
+                  "engine": "whisper",
+                  "destination": "local"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "retry-policy",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "retry": true,
+                "delayMs": 200
+              },
+              "expected": {
+                "retry": true,
+                "delayMs": 200
+              }
+            },
+            {
+              "index": 2,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            },
+            {
+              "index": 3,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "event-export",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "id": "a",
+                  "type": "view"
+                },
+                {
+                  "id": "b",
+                  "type": "unknown"
+                }
+              ],
+              "expected": [
+                {
+                  "id": "a",
+                  "type": "view"
+                },
+                {
+                  "id": "b",
+                  "type": "unknown"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "money-parser",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "total": 1031,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 1031,
+                "unit": "cents"
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "total": 100000520,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 100000520,
+                "unit": "cents"
+              }
+            },
+            {
+              "index": 2,
+              "passed": true,
+              "actual": {
+                "total": 0,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 0,
+                "unit": "cents"
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "workspace-selection",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                "a",
+                "c"
+              ],
+              "expected": [
+                "a",
+                "c"
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "changed-database",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "database": "postgres",
+                "count": 2
+              },
+              "expected": {
+                "database": "postgres",
+                "count": 2
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "database": "sqlite",
+                "count": 0
+              },
+              "expected": {
+                "database": "sqlite",
+                "count": 0
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "russian-attachment",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "name": "a.TXT",
+                  "storage": "device-only"
+                },
+                {
+                  "name": "c.txt",
+                  "storage": "device-only"
+                }
+              ],
+              "expected": [
+                {
+                  "name": "a.TXT",
+                  "storage": "device-only"
+                },
+                {
+                  "name": "c.txt",
+                  "storage": "device-only"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "changed-retention",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "kept": [
+                  0,
+                  7,
+                  8,
+                  30
+                ],
+                "retentionDays": 30
+              },
+              "expected": {
+                "kept": [
+                  0,
+                  7,
+                  8,
+                  30
+                ],
+                "retentionDays": 30
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "kept": [],
+                "retentionDays": 30
+              },
+              "expected": {
+                "kept": [],
+                "retentionDays": 30
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "condition": "curated-plus-checks",
+      "initialAccepted": 8,
+      "finalAccepted": 8,
+      "total": 8,
+      "repaired": 0,
+      "introducedFailures": 0,
+      "metadata": [
+        {
+          "model": "gpt-6-astra",
+          "elapsedMs": 29642.743416000012,
+          "inputChars": 5550,
+          "reportedTokens": "22796"
+        },
+        {
+          "model": "gpt-6-astra",
+          "elapsedMs": 31639.40533400001,
+          "inputChars": 8471,
+          "reportedTokens": "23521"
+        }
+      ],
+      "initialScores": [
+        {
+          "taskId": "transcript-jobs",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "id": "a",
+                  "engine": "whisper",
+                  "destination": "local"
+                },
+                {
+                  "id": "b",
+                  "engine": "whisper",
+                  "destination": "local"
+                }
+              ],
+              "expected": [
+                {
+                  "id": "a",
+                  "engine": "whisper",
+                  "destination": "local"
+                },
+                {
+                  "id": "b",
+                  "engine": "whisper",
+                  "destination": "local"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "retry-policy",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "retry": true,
+                "delayMs": 200
+              },
+              "expected": {
+                "retry": true,
+                "delayMs": 200
+              }
+            },
+            {
+              "index": 2,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            },
+            {
+              "index": 3,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "event-export",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "id": "a",
+                  "type": "view"
+                },
+                {
+                  "id": "b",
+                  "type": "unknown"
+                }
+              ],
+              "expected": [
+                {
+                  "id": "a",
+                  "type": "view"
+                },
+                {
+                  "id": "b",
+                  "type": "unknown"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "money-parser",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "total": 1031,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 1031,
+                "unit": "cents"
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "total": 100000520,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 100000520,
+                "unit": "cents"
+              }
+            },
+            {
+              "index": 2,
+              "passed": true,
+              "actual": {
+                "total": 0,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 0,
+                "unit": "cents"
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "workspace-selection",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                "a",
+                "c"
+              ],
+              "expected": [
+                "a",
+                "c"
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "changed-database",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "database": "postgres",
+                "count": 2
+              },
+              "expected": {
+                "database": "postgres",
+                "count": 2
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "database": "sqlite",
+                "count": 0
+              },
+              "expected": {
+                "database": "sqlite",
+                "count": 0
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "russian-attachment",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "name": "a.TXT",
+                  "storage": "device-only"
+                },
+                {
+                  "name": "c.txt",
+                  "storage": "device-only"
+                }
+              ],
+              "expected": [
+                {
+                  "name": "a.TXT",
+                  "storage": "device-only"
+                },
+                {
+                  "name": "c.txt",
+                  "storage": "device-only"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "changed-retention",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "kept": [
+                  0,
+                  7,
+                  8,
+                  30
+                ],
+                "retentionDays": 30
+              },
+              "expected": {
+                "kept": [
+                  0,
+                  7,
+                  8,
+                  30
+                ],
+                "retentionDays": 30
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "kept": [],
+                "retentionDays": 30
+              },
+              "expected": {
+                "kept": [],
+                "retentionDays": 30
+              }
+            }
+          ]
+        }
+      ],
+      "finalScores": [
+        {
+          "taskId": "transcript-jobs",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "id": "a",
+                  "engine": "whisper",
+                  "destination": "local"
+                },
+                {
+                  "id": "b",
+                  "engine": "whisper",
+                  "destination": "local"
+                }
+              ],
+              "expected": [
+                {
+                  "id": "a",
+                  "engine": "whisper",
+                  "destination": "local"
+                },
+                {
+                  "id": "b",
+                  "engine": "whisper",
+                  "destination": "local"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "retry-policy",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "retry": true,
+                "delayMs": 200
+              },
+              "expected": {
+                "retry": true,
+                "delayMs": 200
+              }
+            },
+            {
+              "index": 2,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            },
+            {
+              "index": 3,
+              "passed": true,
+              "actual": {
+                "retry": false,
+                "delayMs": 0
+              },
+              "expected": {
+                "retry": false,
+                "delayMs": 0
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "event-export",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "id": "a",
+                  "type": "view"
+                },
+                {
+                  "id": "b",
+                  "type": "unknown"
+                }
+              ],
+              "expected": [
+                {
+                  "id": "a",
+                  "type": "view"
+                },
+                {
+                  "id": "b",
+                  "type": "unknown"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "money-parser",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "total": 1031,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 1031,
+                "unit": "cents"
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "total": 100000520,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 100000520,
+                "unit": "cents"
+              }
+            },
+            {
+              "index": 2,
+              "passed": true,
+              "actual": {
+                "total": 0,
+                "unit": "cents"
+              },
+              "expected": {
+                "total": 0,
+                "unit": "cents"
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "workspace-selection",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                "a",
+                "c"
+              ],
+              "expected": [
+                "a",
+                "c"
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "changed-database",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "database": "postgres",
+                "count": 2
+              },
+              "expected": {
+                "database": "postgres",
+                "count": 2
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "database": "sqlite",
+                "count": 0
+              },
+              "expected": {
+                "database": "sqlite",
+                "count": 0
+              }
+            }
+          ]
+        },
+        {
+          "taskId": "russian-attachment",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": [
+                {
+                  "name": "a.TXT",
+                  "storage": "device-only"
+                },
+                {
+                  "name": "c.txt",
+                  "storage": "device-only"
+                }
+              ],
+              "expected": [
+                {
+                  "name": "a.TXT",
+                  "storage": "device-only"
+                },
+                {
+                  "name": "c.txt",
+                  "storage": "device-only"
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": [],
+              "expected": []
+            }
+          ]
+        },
+        {
+          "taskId": "changed-retention",
+          "accepted": true,
+          "tests": [
+            {
+              "index": 0,
+              "passed": true,
+              "actual": {
+                "kept": [
+                  0,
+                  7,
+                  8,
+                  30
+                ],
+                "retentionDays": 30
+              },
+              "expected": {
+                "kept": [
+                  0,
+                  7,
+                  8,
+                  30
+                ],
+                "retentionDays": 30
+              }
+            },
+            {
+              "index": 1,
+              "passed": true,
+              "actual": {
+                "kept": [],
+                "retentionDays": 30
+              },
+              "expected": {
+                "kept": [],
+                "retentionDays": 30
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

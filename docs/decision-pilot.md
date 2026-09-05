@@ -2,9 +2,11 @@
 
 Purpose: decide whether Pathmark reduces repeated corrections enough to justify a broader product direction. This is a plan and measurement kit, not a completed user study.
 
+The [executed coding comparison](validation/coding-pilot/README.md) now tests eight runnable implementations across curated instructions, Pathmark, and curated instructions with the same checks. All three passed 8/8; no advantage was demonstrated. A separate one-participant observation now covers the user's selected icon task, active Mac implementation task, and Pathmark itself. Task-specific data remains locally outside this repository, and outcomes are kept separate. Quiet follow-ups run every three hours for at most two weeks. This does not replace the five-person study below.
+
 ## Participants and scope
 
-Start with five consenting people who already switch between at least two coding agents on ongoing projects. Use one chosen project per person for two weeks. Keep all memory local. Do not collect full transcripts, customer data, or source code for study reporting; export reviewed aggregate observations only. No invitations have been sent and no recurring monitoring has been created.
+For the broader study, start with five consenting people who already switch between at least two coding agents on ongoing projects. Use one chosen project per person for two weeks. Keep all memory local. Do not collect full transcripts, customer data, or source code for study reporting; export reviewed aggregate observations only. No external participant invitations have been sent. The current quiet monitor is limited to the user's three selected tasks.
 
 Before enabling the development build on a real memory store, make a backup, verify the selected store path, and use the same Pathmark build in every participating harness. Do not bridge the former Honcho store. First run the isolated demo and verify both configured clients use the intended project identity.
 

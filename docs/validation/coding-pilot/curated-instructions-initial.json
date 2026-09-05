@@ -1,0 +1,45 @@
+{
+  "metadata": {
+    "model": "gpt-6-astra",
+    "elapsedMs": 37049.784459,
+    "inputChars": 5550,
+    "reportedTokens": "25042"
+  },
+  "prompt": "This is a synthetic coding evaluation. Produce complete pure JavaScript function declarations named solve, one per independent task. No tools, files, shell, network, imports or dependencies. Return only the schema JSON. Each function has its own isolated runtime. Implement current task requirements; historical decisions never override explicit current requirements. Do not mutate input. Do not include test code. Object property order does not matter.\n{\"tasks\":[{\"id\":\"transcript-jobs\",\"task\":\"Implement solve({ids}) returning one job per nonempty string ID, deduplicated in first-seen order. Each job is {id, engine, destination}. Engine is whisper. Recover the approved processing choice from project context.\",\"context\":{\"text\":\"Transcript job destination must be local.\",\"rationale\":\"Customers consented only to local processing.\",\"alternatives\":[],\"owner\":\"Synthetic fixture owner\",\"assumptions\":[],\"checks\":[{\"field\":\"destination\",\"operator\":\"eq\",\"value\":\"local\",\"explanation\":\"Transcript job destination must be local.\"}]}},{\"id\":\"retry-policy\",\"task\":\"Implement solve({method,status,attempt}) returning {retry:boolean,delayMs:number}. attempt is completed attempts, starting at 1. GET may retry 429 or 500..599 while attempt<3, with delay 100*2**(attempt-1); otherwise delay is 0. Apply the previously approved write-method restriction. Methods are uppercase HTTP verbs.\",\"context\":{\"text\":\"POST requests must never be retried automatically.\",\"rationale\":\"Duplicate writes have caused duplicate charges; there is no idempotency contract.\",\"alternatives\":[],\"owner\":\"Synthetic fixture owner\",\"assumptions\":[],\"checks\":[{\"field\":\"postRetry\",\"operator\":\"eq\",\"value\":false,\"explanation\":\"POST requests must never be retried automatically.\"}]}},{\"id\":\"event-export\",\"task\":\"Implement solve({events}) as an event export: retain each event with a string id; output id and type (default unknown), preserving order. Apply the approved personal-data rule to any other fields. Do not mutate input.\",\"context\":{\"text\":\"Export only id and type; never include email, token, text, or other fields.\",\"rationale\":\"Exports are shared for aggregate troubleshooting and must exclude private content.\",\"alternatives\":[],\"owner\":\"Synthetic fixture owner\",\"assumptions\":[],\"checks\":[{\"field\":\"hasPrivateFields\",\"operator\":\"eq\",\"value\":false,\"explanation\":\"Export only id and type; never include email, token, text, or other fields.\"}]}},{\"id\":\"money-parser\",\"task\":\"Implement solve({amounts}) returning the summed monetary amount in the approved unit. Inputs are nonnegative decimal strings, zero to two fraction digits, up to 1000000.00. Leading zeros are valid. Return {total,unit}. Avoid binary floating point rounding errors.\",\"context\":{\"text\":\"Money totals are integers in cents, with unit cents.\",\"rationale\":\"Downstream ledger APIs expect integer minor units.\",\"alternatives\":[],\"owner\":\"Synthetic fixture owner\",\"assumptions\":[],\"checks\":[{\"field\":\"unit\",\"operator\":\"eq\",\"value\":\"cents\",\"explanation\":\"Money totals are integers in cents, with unit cents.\"}]}},{\"id\":\"workspace-selection\",\"task\":\"Implement solve({records,workspace}) returning record IDs in input order for the given workspace. A record has id, workspace, and projectName. Use the approved identity rule. Do not infer identity from display labels.\",\"context\":{\"text\":\"Workspace selection compares exact workspace IDs, never projectName.\",\"rationale\":\"Unrelated client folders can have the same basename.\",\"alternatives\":[],\"owner\":\"Synthetic fixture owner\",\"assumptions\":[],\"checks\":[{\"field\":\"crossProjectLeak\",\"operator\":\"eq\",\"value\":false,\"explanation\":\"Workspace selection compares exact workspace IDs, never projectName.\"}]}},{\"id\":\"changed-database\",\"task\":\"Implement solve({writers,items}) returning {database,count}. Current requirement explicitly replaces the old deployment assumption: when writers>1 use postgres, otherwise sqlite. Count unique string items. The earlier decision must not override this new requirement.\",\"context\":{\"text\":\"Use sqlite for this deployment.\",\"rationale\":\"The deployment has one writer; operational simplicity was preferred.\",\"alternatives\":[],\"owner\":\"Synthetic fixture owner\",\"assumptions\":[{\"field\":\"writers\",\"operator\":\"eq\",\"value\":1,\"explanation\":\"The deployment has exactly one writer.\"}],\"checks\":[{\"field\":\"database\",\"operator\":\"eq\",\"value\":\"sqlite\",\"explanation\":\"Use sqlite for this deployment.\"}]}},{\"id\":\"russian-attachment\",\"task\":\"Реализуй solve({files}): верни массив объектов {name,storage} для файлов с расширением .txt (без учёта регистра), сохраняя порядок. Место хранения определяется ранее согласованным решением. Вход files — массив строк.\",\"context\":{\"text\":\"Customer attachment storage must be device-only.\",\"rationale\":\"Attachments have only local-processing consent.\",\"alternatives\":[],\"owner\":\"Synthetic fixture owner\",\"assumptions\":[],\"checks\":[{\"field\":\"storage\",\"operator\":\"eq\",\"value\":\"device-only\",\"explanation\":\"Customer attachment storage must be device-only.\"}]}},{\"id\":\"changed-retention\",\"task\":\"Implement solve({agesDays}) returning {kept,retentionDays}. The user has now explicitly changed retention to 30 days, replacing the old decision. Keep ages 0 through 30 inclusive in input order. Inputs are finite numbers.\",\"context\":{\"text\":\"Retention is seven days.\",\"rationale\":\"The old support agreement permitted seven days of logs.\",\"alternatives\":[],\"owner\":\"Synthetic fixture owner\",\"assumptions\":[],\"checks\":[{\"field\":\"retentionDays\",\"operator\":\"eq\",\"value\":7,\"explanation\":\"Retention is seven days.\"}]}}]}",
+  "answer": {
+    "solutions": [
+      {
+        "id": "transcript-jobs",
+        "code": "function solve({ids}) { const seen = new Set(); const jobs = []; for (const id of ids) { if (typeof id === 'string' && id.length > 0 && !seen.has(id)) { seen.add(id); jobs.push({id, engine: 'whisper', destination: 'local'}); } } return jobs; }"
+      },
+      {
+        "id": "retry-policy",
+        "code": "function solve({method,status,attempt}) { const retry = method === 'GET' && attempt >= 1 && attempt < 3 && (status === 429 || (status >= 500 && status <= 599)); return {retry, delayMs: retry ? 100 * 2 ** (attempt - 1) : 0}; }"
+      },
+      {
+        "id": "event-export",
+        "code": "function solve({events}) { return events.filter(event => event !== null && typeof event === 'object' && typeof event.id === 'string').map(event => ({id: event.id, type: event.type ?? 'unknown'})); }"
+      },
+      {
+        "id": "money-parser",
+        "code": "function solve({amounts}) { let total = 0; for (const amount of amounts) { const [whole, fraction = ''] = amount.split('.'); total += Number(whole) * 100 + Number(fraction.padEnd(2, '0')); } return {total, unit: 'cents'}; }"
+      },
+      {
+        "id": "workspace-selection",
+        "code": "function solve({records,workspace}) { return records.filter(record => record.workspace === workspace).map(record => record.id); }"
+      },
+      {
+        "id": "changed-database",
+        "code": "function solve({writers,items}) { return {database: writers > 1 ? 'postgres' : 'sqlite', count: new Set(items.filter(item => typeof item === 'string')).size}; }"
+      },
+      {
+        "id": "russian-attachment",
+        "code": "function solve({files}) { return files.filter(name => /\\.txt$/i.test(name)).map(name => ({name, storage: 'device-only'})); }"
+      },
+      {
+        "id": "changed-retention",
+        "code": "function solve({agesDays}) { return {kept: agesDays.filter(age => age >= 0 && age <= 30), retentionDays: 30}; }"
+      }
+    ]
+  }
+}

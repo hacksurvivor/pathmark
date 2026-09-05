@@ -1,0 +1,35 @@
+{
+  "frozenAt": "2026-09-05T04:03:19.967Z",
+  "runnerVersion": "codex-cli 0.153.4",
+  "fixtureSha256": "d170537dec2ff597ddadd4815621da4d299cc9824ff0973cc26fe87960a45650",
+  "runnerSha256": "b1b3914342a7a38a4a54aa8b40442cec0929d4ba4c2a38cea5b8b1f430098739",
+  "tasks": [
+    "transcript-jobs",
+    "retry-policy",
+    "event-export",
+    "money-parser",
+    "workspace-selection",
+    "changed-database",
+    "russian-attachment",
+    "changed-retention"
+  ],
+  "conditionOrder": [
+    "curated-instructions",
+    "pathmark",
+    "curated-plus-checks"
+  ],
+  "design": "Eight synthetic implementation tasks per condition. One initial batched model call and one review batched call per condition; fresh sessions. Fixed tests withheld from both calls. Same exact model, same instruction content and two-call budget. Code is executed locally, no external side effects.",
+  "primaryMetric": "All acceptance tests pass after review",
+  "secondaryMetrics": [
+    "Initial acceptance failures",
+    "Failures repaired in review",
+    "New failures introduced in review",
+    "Elapsed inference time",
+    "Prompt characters"
+  ],
+  "nonMetrics": [
+    "No human repeated corrections, review minutes, retention or willingness to pay are inferred."
+  ],
+  "control": "curated-plus-checks receives the same predicate results without Pathmark provenance, isolating benefit of executable checks from memory packaging.",
+  "stopRule": "Run every condition once; retain failures; do not tune fixtures or prompts after seeing outcomes."
+}
