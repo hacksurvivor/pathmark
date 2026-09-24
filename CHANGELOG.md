@@ -8,6 +8,7 @@ No unreleased changes.
 
 ## Releases
 
+- [v0.1.16](docs/releases/v0.1.16.md) — Claude Code gets auto-capture hooks, a user-scoped install, and a `claude` synthesis preset; `pathmark import-native claude-code` brings Claude Code auto-memory into the shared store; every MCP tool now carries annotations and the server sends usage instructions that survive deferred tool search.
 - [v0.1.15](docs/releases/v0.1.15.md) — proactive Codex memory remains automatic but is quiet by default, with visible recall available as an explicit audit mode and vulnerable transitive dependencies updated.
 - [v0.1.14](docs/releases/v0.1.14.md) — workspace, project, and namespace filters now recover approved conclusions through their shared evidence scope without leaking foreign or mixed-scope memory.
 - [v0.1.13](docs/releases/v0.1.13.md) — multi-intent proactive recall, safe conversational answers, explicit recall feedback, and progressive consolidation.

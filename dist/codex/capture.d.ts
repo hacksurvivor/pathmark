@@ -24,3 +24,5 @@ export declare function captureExternalTurn(input: {
     at?: string;
 }): Promise<void>;
 export declare function writeback(input: CodexHookInput): Promise<string>;
+export declare function projectTagFromCwd(cwd: string | undefined): string | undefined;
+export declare function workspaceTagFromCwd(cwd: string | undefined): string | undefined;

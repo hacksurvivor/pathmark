@@ -36,6 +36,8 @@ export function loadConfig(): PathmarkConfig {
     chatCommand: process.env.PATHMARK_CHAT_COMMAND,
     codexCommand: process.env.PATHMARK_CODEX_COMMAND ?? "codex",
     codexModel: process.env.PATHMARK_CODEX_MODEL,
+    claudeCommand: process.env.PATHMARK_CLAUDE_COMMAND ?? "claude",
+    claudeModel: process.env.PATHMARK_CLAUDE_MODEL,
     openaiBaseUrl: process.env.PATHMARK_OPENAI_BASE_URL ?? "https://api.openai.com/v1",
     openaiApiKey: process.env.PATHMARK_OPENAI_API_KEY,
     openaiModel: process.env.PATHMARK_OPENAI_MODEL,
@@ -68,7 +70,7 @@ export function loadConfig(): PathmarkConfig {
 
 function synthesisProvider(): PathmarkConfig["synthesisProvider"] {
   const value = process.env.PATHMARK_SYNTHESIS_PROVIDER;
-  if (value === "command" || value === "codex" || value === "openai-compatible") return value;
+  if (value === "command" || value === "codex" || value === "claude" || value === "openai-compatible") return value;
   if (process.env.PATHMARK_OPENAI_API_KEY && process.env.PATHMARK_OPENAI_MODEL) return "openai-compatible";
   if (process.env.PATHMARK_CHAT_COMMAND) return "command";
   return "client";

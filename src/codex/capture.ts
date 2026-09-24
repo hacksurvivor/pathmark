@@ -676,7 +676,7 @@ function recallTermsFromCwd(cwd: string | undefined): string[] {
   return tokenizeSearchText(basename).filter((term) => !GENERIC_RECALL_TOKENS.has(term));
 }
 
-function projectTagFromCwd(cwd: string | undefined): string | undefined {
+export function projectTagFromCwd(cwd: string | undefined): string | undefined {
   if (!cwd?.trim()) return undefined;
   const project = path
     .basename(cwd.trim())
@@ -687,7 +687,7 @@ function projectTagFromCwd(cwd: string | undefined): string | undefined {
   return `project:${project}`;
 }
 
-function workspaceTagFromCwd(cwd: string | undefined): string | undefined {
+export function workspaceTagFromCwd(cwd: string | undefined): string | undefined {
   if (!cwd?.trim()) return undefined;
   const normalized = path.resolve(cwd.trim());
   const hash = createHash("sha256").update(normalized).digest("hex").slice(0, 12);

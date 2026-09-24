@@ -69,7 +69,7 @@ Use `--json` when another installer or script should consume the output.
 | Client or model surface | Pathmark integration | Notes |
 | --- | --- | --- |
 | Codex | stdio MCP server | Use `codex mcp add pathmark -- pathmark`. Optional `codex` synthesis preset. |
-| Claude Code | stdio MCP server | Add as a local stdio MCP server. Keep synthesis as `client`; call `recall_memory` for visible used-memory entries. |
+| Claude Code | stdio MCP server + hooks | `pathmark setup claude-code --json` includes a user-scoped `claude mcp add` command and SessionStart/UserPromptSubmit/PostToolUse/Stop hooks. `pathmark import-native claude-code` imports Claude Code auto-memory. Optional `claude` synthesis preset. |
 | Claude Desktop | stdio MCP server | Use `mcpServers.pathmark.command = "pathmark"`. |
 | Cursor | stdio MCP server | Add `pathmark` to Cursor MCP settings; call `recall_memory` for visible used-memory entries. |
 | opencode | stdio MCP server | Add Pathmark as a local MCP server command; call `recall_memory` for visible used-memory entries. |
@@ -147,7 +147,7 @@ Optional Codex-backed synthesis works when the MCP client cannot synthesize and 
 ```bash
 PATHMARK_SYNTHESIS_PROVIDER=codex
 PATHMARK_CODEX_COMMAND=codex
-PATHMARK_CODEX_MODEL=gpt-5.5
+PATHMARK_CODEX_MODEL=gpt-5.6   # optional; unset follows the CLI default
 ```
 
 Use persisted Codex CLI auth. Pathmark deliberately does not forward arbitrary environment secrets such as API keys into the isolated synthesis process.
@@ -155,8 +155,39 @@ Use persisted Codex CLI auth. Pathmark deliberately does not forward arbitrary e
 ## Claude Code
 
 ```bash
-claude mcp add pathmark -- pathmark
+claude mcp add --scope user pathmark -- pathmark
 ```
+
+Pathmark sends MCP server instructions, so Claude Code knows when to call `recall_memory`, `remember`, and `create_conclusion` even while tool search keeps Pathmark's tool schemas deferred. Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, ...), so recall and search are marked read-only while `purge_memory`, `compact_memory`, and `delete_memory` are marked destructive.
+
+Hooks: `pathmark setup claude-code --json` prints a `hooks` block for `~/.claude/settings.json`:
+
+| Claude Code event | Pathmark command | Effect |
+| --- | --- | --- |
+| `SessionStart` (`startup\|resume\|clear\|compact\|fork`) | `pathmark hook session-start --client=claude-code` | Injects the approved intent snapshot, including after context compaction. |
+| `UserPromptSubmit` | `pathmark hook before-agent --client=claude-code` | Scoped recall plus prompt capture. |
+| `PostToolUse` | `pathmark hook after-tool --client=claude-code` | Compact, redacted tool activity. |
+| `Stop` | `pathmark hook after-agent --client=claude-code` | Captures the final reply from `last_assistant_message`, falling back to the transcript tail on older Claude Code versions. |
+
+`--client=claude-code` keeps the `mcp__pathmark__*` tool names that Claude Code uses in injected context.
+
+Import Claude Code's built-in auto-memory (`~/.claude/projects/<project>/memory/*.md`, honoring `CLAUDE_CONFIG_DIR`) so Codex, Gemini CLI, and other harnesses can recall it:
+
+```bash
+pathmark import-native claude-code [--root=DIR] [--project=SLUG] [--namespace=NAME] [--dry-run]
+```
+
+Each memory file becomes raw evidence tagged `claude-code-memory`, `memory-type:<type>`, and the project/workspace tags of its original directory (recovered from a session transcript, or by matching the directory slug against the filesystem). Imports are never conclusions, so the approval gate still decides what becomes durable intent. Re-running updates edited files in place (the prior version stays in history) and never resurrects a record you deleted in Pathmark.
+
+Optional Claude-backed synthesis for `ask_memory` outside a Claude client uses the Claude CLI's own auth, including subscription login:
+
+```bash
+PATHMARK_SYNTHESIS_PROVIDER=claude
+PATHMARK_CLAUDE_COMMAND=claude
+PATHMARK_CLAUDE_MODEL=sonnet   # optional; unset follows the CLI default
+```
+
+The synthesis process runs with no tools, no MCP servers, hooks disabled, no saved session, a fixed isolated working directory, and no `PATHMARK_*` variables.
 
 Recommended config:
 

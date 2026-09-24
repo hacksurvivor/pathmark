@@ -1,9 +1,17 @@
+import { open } from "node:fs/promises";
 import { captureExternalTurn, observe, prompt, recall, type CodexHookInput } from "./codex/capture.js";
 
 type HookEvent = "session-start" | "before-agent" | "after-tool" | "after-agent";
 
-export async function runPortableHook(event: string | undefined): Promise<void> {
-  if (!isHookEvent(event)) throw new Error("Usage: pathmark hook <session-start|before-agent|after-tool|after-agent>");
+// Claude Code registers MCP tools as mcp__<server>__<tool>, so its context keeps the qualified names.
+type HookClient = "portable" | "claude-code";
+
+export async function runPortableHook(event: string | undefined, args: string[] = []): Promise<void> {
+  if (!isHookEvent(event)) {
+    throw new Error("Usage: pathmark hook <session-start|before-agent|after-tool|after-agent> [--client=claude-code]");
+  }
+  const client: HookClient = args.includes("--client=claude-code") ? "claude-code" : "portable";
+  const hookContext = (context: string) => (client === "claude-code" ? context : portableContext(context));
   const input = await readInput();
   const common: CodexHookInput = {
     session_id: stringField(input, "session_id") ?? stringField(input, "sessionId"),
@@ -23,12 +31,12 @@ export async function runPortableHook(event: string | undefined): Promise<void> 
   const hookEventName = stringField(input, "hook_event_name") ?? portableEventName(event);
 
   if (event === "session-start") {
-    const context = portableContext(await recall(common));
+    const context = hookContext(await recall(common));
     writeHookOutput(hookEventName, context);
     return;
   }
   if (event === "before-agent") {
-    const context = portableContext(await prompt(common));
+    const context = hookContext(await prompt(common));
     writeHookOutput(hookEventName, context);
     return;
   }
@@ -38,7 +46,12 @@ export async function runPortableHook(event: string | undefined): Promise<void> 
     return;
   }
 
-  const response = stringField(input, "prompt_response") ?? stringField(input, "response");
+  // Claude Code's Stop hook may omit the reply text; fall back to the transcript it points at.
+  const response =
+    stringField(input, "prompt_response") ??
+    stringField(input, "response") ??
+    stringField(input, "last_assistant_message") ??
+    (common.transcript_path ? await lastAssistantText(common.transcript_path) : undefined);
   if (response) {
     await captureExternalTurn({
       sessionId: common.session_id?.trim() || common.cwd?.trim() || "portable-hook",
@@ -49,6 +62,56 @@ export async function runPortableHook(event: string | undefined): Promise<void> 
     });
   }
   process.stdout.write("{}\n");
+}
+
+const TRANSCRIPT_TAIL_BYTES = 256 * 1024;
+
+// Reads only the tail of a Claude Code JSONL transcript and returns the text of the final
+// assistant turn. Malformed or partial lines are skipped; any read failure yields undefined.
+export async function lastAssistantText(transcriptPath: string): Promise<string | undefined> {
+  let tail: string;
+  try {
+    const handle = await open(transcriptPath, "r");
+    try {
+      const { size } = await handle.stat();
+      const length = Math.min(size, TRANSCRIPT_TAIL_BYTES);
+      const buffer = Buffer.alloc(length);
+      await handle.read(buffer, 0, length, size - length);
+      tail = buffer.toString("utf8");
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return undefined;
+  }
+  const lines = tail.split("\n");
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const text = assistantLineText(lines[index]);
+    if (text) return text;
+  }
+  return undefined;
+}
+
+function assistantLineText(line: string): string | undefined {
+  if (!line.includes('"assistant"')) return undefined;
+  let entry: unknown;
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (typeof entry !== "object" || entry === null) return undefined;
+  const { type, isSidechain, message } = entry as { type?: unknown; isSidechain?: unknown; message?: unknown };
+  if (type !== "assistant" || isSidechain === true || typeof message !== "object" || message === null) return undefined;
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content.trim() || undefined;
+  if (!Array.isArray(content)) return undefined;
+  const text = content
+    .filter((part): part is { type: "text"; text: string } => part?.type === "text" && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
+  return text || undefined;
 }
 
 function portableContext(context: string): string {

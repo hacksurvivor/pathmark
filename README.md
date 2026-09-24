@@ -9,16 +9,16 @@ Carry intent across agents without turning stale code facts into hidden memory.
   <a href="https://scorecard.dev/viewer/?uri=github.com/hacksurvivor/pathmark"><img src="https://api.scorecard.dev/projects/github.com/hacksurvivor/pathmark/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
-## What's New — v0.1.15
+## What's New — v0.1.16
 
-Pathmark v0.1.15 keeps proactive memory useful without making the conversation noisy:
+Pathmark v0.1.16 catches Claude Code up with Codex and makes Pathmark legible to current agent hosts:
 
-- relevant memory is still injected automatically before Codex answers;
-- raw `recall_memory` tool output is now hidden by default, keeping the chat focused on the answer instead of memory plumbing;
-- `PATHMARK_CODEX_VISIBLE_RECALL=on` restores the explicit recall trace whenever you want to audit which records were used;
-- vulnerable transitive `fast-uri` and `qs` versions are replaced by patched releases in the published dependency lock.
+- `pathmark setup claude-code` now prints a user-scoped `claude mcp add` command and SessionStart/UserPromptSubmit/PostToolUse/Stop hooks, so Claude Code gets the same automatic capture and session-start recall as Codex and Gemini CLI;
+- `pathmark import-native claude-code` imports Claude Code's built-in auto-memory into the shared store, so other agents can recall it;
+- every MCP tool declares `readOnlyHint`/`destructiveHint` annotations, and the server sends instructions that reach the model even when the host defers tool schemas behind tool search;
+- `PATHMARK_SYNTHESIS_PROVIDER=claude` lets `ask_memory` synthesize through the Claude CLI's own login, fully isolated.
 
-See the [v0.1.15 release notes](docs/releases/v0.1.15.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
+See the [v0.1.16 release notes](docs/releases/v0.1.16.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/hacksurvivor/pathmark/main/assets/pathmark-hero.png" alt="Pathmark local intent and provenance shared by Codex, Claude Code, opencode, and Gemini CLI" width="100%">
@@ -162,7 +162,16 @@ When you want the visible "what memory did you use?" entry in Codex, Claude Code
 ### Claude Code
 
 ```bash
-claude mcp add pathmark -- pathmark
+claude mcp add --scope user pathmark -- pathmark
+```
+
+`--scope user` makes Pathmark available in every project; Claude Code's default scope only covers the current directory. For automatic capture and session-start recall (including after context compaction), merge the hooks block from `pathmark setup claude-code` into `~/.claude/settings.json`.
+
+Claude Code's built-in auto-memory lives in per-project folders the other agents cannot see. Bring it into the shared store as evidence (re-runnable; edits update in place with history, and records you delete in Pathmark stay deleted):
+
+```bash
+pathmark import-native claude-code --dry-run
+pathmark import-native claude-code
 ```
 
 ### opencode / Gemini CLI

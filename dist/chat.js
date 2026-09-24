@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 export async function synthesizeWithCommand(input) {
@@ -26,6 +26,9 @@ export async function synthesizeWithCommand(input) {
     ].join("\n");
     if (input.config.synthesisProvider === "codex") {
         return runCodex(input.config, prompt);
+    }
+    if (input.config.synthesisProvider === "claude") {
+        return runClaude(input.config, prompt);
     }
     if (input.config.synthesisProvider === "openai-compatible") {
         return runOpenAiCompatible(input.config, input.question, prompt);
@@ -58,11 +61,54 @@ async function runCodex(config, prompt) {
         if (config.codexModel)
             args.push("--model", config.codexModel);
         args.push("-");
-        return await runCommand(config.codexCommand, args, prompt, config.chatTimeoutMs, parseCodexJsonAnswer, safeCodexEnvironment());
+        return await runCommand(config.codexCommand, args, prompt, config.chatTimeoutMs, parseCodexJsonAnswer, { env: safeCodexEnvironment() });
     }
     finally {
         await rm(isolatedCwd, { recursive: true, force: true });
     }
+}
+// --bare would be tighter but only honors ANTHROPIC_API_KEY, which breaks subscription (OAuth) users.
+// Instead: no tools, no MCP servers, no hooks (so synthesis never re-captures itself), no saved session.
+// The cwd is stable on purpose: Claude Code creates per-cwd project state, so a fresh temp dir
+// per call would leave a new ~/.claude/projects entry behind every time.
+async function runClaude(config, prompt) {
+    const isolatedCwd = path.join(os.tmpdir(), "pathmark-claude-synthesis");
+    await mkdir(isolatedCwd, { recursive: true });
+    const args = [
+        "--print",
+        "--output-format",
+        "json",
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--no-session-persistence",
+        "--disable-slash-commands",
+        "--settings",
+        JSON.stringify({ disableAllHooks: true }),
+    ];
+    if (config.claudeModel)
+        args.push("--model", config.claudeModel);
+    return await runCommand(config.claudeCommand, args, prompt, config.chatTimeoutMs, parseClaudeJsonAnswer, { env: withoutPathmarkEnvironment(), cwd: isolatedCwd, failureDetail: claudeFailureDetail });
+}
+export function parseClaudeJsonAnswer(stdout) {
+    const result = JSON.parse(stdout.trim());
+    if (result.is_error)
+        throw new Error(`Claude synthesis failed: ${String(result.result ?? result.subtype ?? "unknown error")}`);
+    return typeof result.result === "string" ? result.result.trim() : "";
+}
+// Claude exits non-zero with the reason (e.g. expired auth) in its stdout JSON, not stderr.
+function claudeFailureDetail(stdout) {
+    try {
+        const result = JSON.parse(stdout.trim());
+        return typeof result.result === "string" ? result.result : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
+// Claude needs its own auth/provider variables, but never Pathmark's (API keys, export key).
+function withoutPathmarkEnvironment() {
+    return Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("PATHMARK_")));
 }
 async function runOpenAiCompatible(config, question, prompt) {
     if (!config.openaiApiKey)
@@ -121,11 +167,13 @@ function parseCodexJsonAnswer(stdout) {
     }
     return answer.trim();
 }
-function runCommand(command, args, stdin, timeoutMs, parse = (stdout) => stdout.trim(), env = process.env) {
+function runCommand(command, args, stdin, timeoutMs, parse = (stdout) => stdout.trim(), options = {}) {
+    const { env = process.env, cwd, failureDetail } = options;
     return new Promise((resolve, reject) => {
         const child = spawn(command, args, {
             stdio: ["pipe", "pipe", "pipe"],
             env,
+            cwd,
         });
         const timer = setTimeout(() => {
             child.kill("SIGTERM");
@@ -141,11 +189,18 @@ function runCommand(command, args, stdin, timeoutMs, parse = (stdout) => stdout.
         });
         child.on("close", (code) => {
             clearTimeout(timer);
+            const output = Buffer.concat(stdout).toString("utf8");
             if (code === 0) {
-                resolve(parse(Buffer.concat(stdout).toString("utf8")));
+                try {
+                    resolve(parse(output));
+                }
+                catch (error) {
+                    reject(error);
+                }
                 return;
             }
-            reject(new Error(`PATHMARK_CHAT_COMMAND exited with code ${code}: ${Buffer.concat(stderr).toString("utf8").trim()}`));
+            const detail = Buffer.concat(stderr).toString("utf8").trim() || failureDetail?.(output) || "";
+            reject(new Error(`Synthesis command ${command} exited with code ${code}: ${detail}`));
         });
         child.stdin.end(stdin);
     });

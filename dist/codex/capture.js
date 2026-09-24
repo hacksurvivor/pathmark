@@ -554,7 +554,7 @@ function recallTermsFromCwd(cwd) {
     const basename = path.basename(cwd.trim());
     return tokenizeSearchText(basename).filter((term) => !GENERIC_RECALL_TOKENS.has(term));
 }
-function projectTagFromCwd(cwd) {
+export function projectTagFromCwd(cwd) {
     if (!cwd?.trim())
         return undefined;
     const project = path
@@ -566,7 +566,7 @@ function projectTagFromCwd(cwd) {
         return undefined;
     return `project:${project}`;
 }
-function workspaceTagFromCwd(cwd) {
+export function workspaceTagFromCwd(cwd) {
     if (!cwd?.trim())
         return undefined;
     const normalized = path.resolve(cwd.trim());
