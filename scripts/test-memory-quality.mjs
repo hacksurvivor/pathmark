@@ -13,7 +13,9 @@ process.env.PATHMARK_CODEX_PROACTIVE_RECALL = "on";
 process.env.PATHMARK_CODEX_VISIBLE_RECALL = "on";
 
 const store = new PathmarkStore(loadConfig());
-const at = "2026-08-16T00:00:00.000Z";
+// Relative on purpose: raw evidence is only recallable within PATHMARK_CODEX_RAW_RECALL_DAYS (30),
+// so a fixed fixture date silently ages out of recall and fails this suite.
+const at = new Date(Date.now() - 2 * 24 * 60 * 60 * 1_000).toISOString();
 const workspace = (cwd) => `workspace:${createHash("sha256").update(path.resolve(cwd)).digest("hex").slice(0, 12)}`;
 const scoped = (project, cwd) => ["codex-raw", "codex-session", "role-user", `project:${project}`, workspace(cwd)];
 

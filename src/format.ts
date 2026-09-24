@@ -26,6 +26,8 @@ export function publicConfig(config: PathmarkConfig): Record<string, unknown> {
     chatCommand: config.chatCommand ? "configured" : "not_configured",
     codexCommand: config.codexCommand,
     codexModel: config.codexModel ?? "default",
+    claudeCommand: config.claudeCommand,
+    claudeModel: config.claudeModel ?? "default",
     openaiBaseUrl: config.openaiBaseUrl,
     openaiApiKey: config.openaiApiKey ? "set" : "missing",
     openaiModel: config.openaiModel ?? "unset",

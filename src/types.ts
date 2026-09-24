@@ -88,10 +88,12 @@ export interface PathmarkRecordDraft {
 export interface PathmarkConfig {
   storeDir: string;
   memoryFile: string;
-  synthesisProvider: "client" | "command" | "codex" | "openai-compatible";
+  synthesisProvider: "client" | "command" | "codex" | "claude" | "openai-compatible";
   chatCommand?: string;
   codexCommand: string;
   codexModel?: string;
+  claudeCommand: string;
+  claudeModel?: string;
   openaiBaseUrl: string;
   openaiApiKey?: string;
   openaiModel?: string;

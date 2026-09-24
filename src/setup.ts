@@ -115,12 +115,14 @@ function setupGuide(target: SetupTarget): SetupGuide {
     return {
       target,
       title: "Claude Code",
-      summary: "Register Pathmark as a local stdio MCP server in Claude Code.",
-      commands: ["claude mcp add pathmark -- pathmark"],
+      summary: "Register Pathmark as a user-scoped MCP server in Claude Code and optionally enable auto-capture hooks.",
+      commands: [`claude mcp add --scope user pathmark -e PATHMARK_STORE_DIR=${shellQuote(config.storeDir)} -- pathmark`],
+      config: { hooks: claudeCodeHooks() },
       env,
       notes: [
+        "--scope user makes Pathmark available in every project; the default local scope only covers the current directory.",
+        "Merge the hooks block into ~/.claude/settings.json to inject approved intent at session start (including after compaction) and capture prompts, compact tool activity, and final replies.",
         "Keep synthesis in client mode so Claude Code's own model answers from returned memory context.",
-        "Ask Claude Code to call recall_memory at task start when you want a visible memory trace.",
         "Use the same PATHMARK_STORE_DIR as Codex to share memory across harnesses.",
       ],
     };
@@ -280,6 +282,21 @@ function setupGuide(target: SetupTarget): SetupGuide {
       "PATHMARK_CHAT_COMMAND receives the memory prompt on stdin and must write an answer to stdout.",
       "Use recall_memory through an MCP host when you want a visible memory trace.",
     ],
+  };
+}
+
+// Claude Code hook timeouts are in seconds, unlike Gemini CLI's milliseconds.
+function claudeCodeHooks(): Record<string, unknown[]> {
+  const hook = (event: string, timeout: number) => ({
+    type: "command",
+    command: `pathmark hook ${event} --client=claude-code`,
+    timeout,
+  });
+  return {
+    SessionStart: [{ matcher: "startup|resume|clear|compact|fork", hooks: [hook("session-start", 30)] }],
+    UserPromptSubmit: [{ hooks: [hook("before-agent", 20)] }],
+    PostToolUse: [{ matcher: ".*", hooks: [hook("after-tool", 10)] }],
+    Stop: [{ hooks: [hook("after-agent", 20)] }],
   };
 }
 

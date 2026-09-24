@@ -20,6 +20,7 @@ const USAGE = [
     "  pathmark backup [--output=FILE]",
     "  pathmark export [--output=FILE] [--namespace=NAME] [--tag=TAG] [--kind=memory|conclusion] [--encrypted]",
     "  pathmark import FILE [--namespace=NAME] [--dry-run]",
+    "  pathmark import-native claude-code [--root=DIR] [--project=SLUG] [--namespace=NAME] [--dry-run]",
     "  pathmark ingest --client=NAME [--namespace=NAME] [--dry-run] < transcript.json",
     "  pathmark purge [--id=ID] [--namespace=NAME] [--tag=TAG] [--source=SOURCE] [--before=ISO] [--apply]",
 ].join("\n");
@@ -127,6 +128,21 @@ export async function runManagementCommand(command, args) {
         const backupFile = await store.backup();
         const results = await store.addRecords(drafts, { dedupe: true });
         console.log(JSON.stringify({ applied: true, imported: results.filter((result) => result.created).length, skipped: results.filter((result) => !result.created).length, backupFile }, null, 2));
+        return;
+    }
+    if (command === "import-native") {
+        const source = options.positionals[0];
+        if (source !== "claude-code")
+            throw new Error(`import-native supports: claude-code.\n${USAGE}`);
+        const { defaultClaudeProjectsDir, importClaudeCodeMemories, readClaudeCodeMemories } = await import("./native-memory.js");
+        const root = path.resolve(option(options, "root") ?? defaultClaudeProjectsDir());
+        const memories = await readClaudeCodeMemories(root, option(options, "project"));
+        const result = await importClaudeCodeMemories(store, memories, {
+            namespace: option(options, "namespace"),
+            redact: config.redactMcpWrites,
+            dryRun: options.flags.has("dry-run"),
+        });
+        console.log(JSON.stringify({ source, root, ...result }, null, 2));
         return;
     }
     if (command === "ingest") {

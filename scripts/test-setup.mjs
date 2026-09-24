@@ -17,7 +17,7 @@ assert.equal(listRun.stdout.includes("gemini-cli"), true);
 
 const claudeRun = runSetup(["claude-code"]);
 assert.equal(claudeRun.status, 0, claudeRun.stderr);
-assert.equal(claudeRun.stdout.includes("claude mcp add pathmark -- pathmark"), true);
+assert.equal(claudeRun.stdout.includes("claude mcp add --scope user pathmark -e PATHMARK_STORE_DIR="), true);
 assert.equal(claudeRun.stdout.includes(defaultStoreDir), true);
 assert.equal(claudeRun.stdout.includes(process.cwd()), false);
 

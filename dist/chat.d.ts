@@ -4,3 +4,4 @@ export declare function synthesizeWithCommand(input: {
     question: string;
     context: SearchResult[];
 }): Promise<string | undefined>;
+export declare function parseClaudeJsonAnswer(stdout: string): string;
