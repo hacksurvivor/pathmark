@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1920, height=1080">
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face {
+        font-family: "Bricolage Grotesque";
+        src: url("assets/fonts/bricolage-grotesque-800.ttf") format("truetype");
+        font-style: normal;
+        font-weight: 800;
+        font-display: block;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #071018;
+      }
+
+      body {
+        color: #eaf3f5;
+        font-family: "IBM Plex Mono", monospace;
+        font-weight: 350;
+      }
+
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #071018;
+      }
+
+      .scene {
+        position: absolute;
+        inset: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background-color: #071018;
+      }
+
+      #s1 { z-index: 1; }
+      #s2,
+      #s3,
+      #s4,
+      #s5,
+      #s6,
+      #s7 {
+        z-index: 2;
+        opacity: 0;
+      }
+
+      .grid {
+        position: absolute;
+        inset: -80px;
+        background-image:
+          linear-gradient(rgba(57, 230, 208, 0.055) 1px, rgba(7, 16, 24, 0) 1px),
+          linear-gradient(90deg, rgba(57, 230, 208, 0.055) 1px, rgba(7, 16, 24, 0) 1px);
+        background-size: 72px 72px;
+        opacity: 0.62;
+      }
+
+      .glow {
+        position: absolute;
+        width: 920px;
+        height: 920px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(57, 230, 208, 0.16), rgba(57, 230, 208, 0) 68%);
+        filter: blur(8px);
+      }
+
+      .glow.amber {
+        background: radial-gradient(circle, rgba(245, 166, 35, 0.13), rgba(245, 166, 35, 0) 68%);
+      }
+
+      .scene-content {
+        position: relative;
+        z-index: 3;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+        padding: 92px 118px 142px;
+        gap: 34px;
+      }
+
+      .meta-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        color: #9fb0b8;
+        font-size: 18px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .meta-row::after {
+        content: "";
+        display: block;
+        width: 310px;
+        height: 2px;
+        background: #39e6d0;
+        transform-origin: left center;
+      }
+
+      .display {
+        font-family: "Bricolage Grotesque", sans-serif;
+        font-weight: 800;
+        letter-spacing: -0.055em;
+        line-height: 0.88;
+      }
+
+      .eyebrow {
+        color: #39e6d0;
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+      }
+
+      .panel {
+        border: 1px solid rgba(159, 176, 184, 0.32);
+        border-radius: 22px;
+        background: rgba(10, 23, 33, 0.91);
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.28);
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        width: max-content;
+        padding: 10px 16px;
+        border: 1px solid rgba(57, 230, 208, 0.34);
+        border-radius: 999px;
+        color: #bfece7;
+        background: rgba(57, 230, 208, 0.08);
+        font-size: 16px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #39e6d0;
+        box-shadow: 0 0 18px rgba(57, 230, 208, 0.75);
+      }
+
+      /* Scene 1 */
+      #s1 .glow { right: -220px; top: -320px; }
+
+      .s1-layout {
+        display: grid;
+        grid-template-columns: 1.08fr 0.92fr;
+        align-items: center;
+        flex: 1;
+        gap: 100px;
+      }
+
+      .s1-title {
+        max-width: 950px;
+        font-size: 164px;
+      }
+
+      .s1-title span {
+        display: block;
+      }
+
+      .s1-title .again {
+        color: #39e6d0;
+      }
+
+      .s1-side {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 18px;
+      }
+
+      .agent-switch {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 24px 28px;
+        border-bottom: 1px solid rgba(159, 176, 184, 0.2);
+        color: #eaf3f5;
+        font-size: 22px;
+      }
+
+      .agent-switch .lost {
+        color: #f5a623;
+        font-size: 15px;
+        letter-spacing: 0.08em;
+      }
+
+      .memory-shard {
+        display: grid;
+        grid-template-columns: 116px 1fr;
+        gap: 20px;
+        padding: 20px 26px;
+        border: 1px solid rgba(159, 176, 184, 0.26);
+        border-radius: 16px;
+        color: #9fb0b8;
+        background: rgba(7, 16, 24, 0.84);
+        font-size: 18px;
+      }
+
+      .memory-shard strong {
+        color: #f5a623;
+        font-weight: 600;
+      }
+
+      .ghost-404 {
+        position: absolute;
+        right: 54px;
+        bottom: -88px;
+        color: rgba(234, 243, 245, 0.38);
+        font-family: "Bricolage Grotesque", sans-serif;
+        font-size: 410px;
+        font-weight: 800;
+        line-height: 1;
+      }
+
+      /* Scene 2 */
+      #s2 .glow { left: -320px; bottom: -360px; }
+
+      .s2-layout {
+        display: grid;
+        grid-template-columns: 0.88fr 1.12fr;
+        align-items: center;
+        flex: 1;
+        gap: 90px;
+      }
+
+      .s2-title {
+        max-width: 720px;
+        font-size: 112px;
+        line-height: 0.94;
+      }
+
+      .s2-title em {
+        display: block;
+        color: #f5a623;
+        font-style: normal;
+      }
+
+      .prompt-stack {
+        position: relative;
+        min-height: 620px;
+      }
+
+      .prompt-window {
+        position: absolute;
+        width: 720px;
+        padding: 26px 30px;
+      }
+
+      .prompt-window:nth-child(1) { top: 22px; left: 0; }
+      .prompt-window:nth-child(2) { top: 190px; left: 76px; }
+      .prompt-window:nth-child(3) { top: 358px; left: 152px; }
+
+      .window-bar {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-bottom: 22px;
+        color: #9fb0b8;
+        font-size: 15px;
+      }
+
+      .window-bar i {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #334750;
+      }
+
+      .prompt-line {
+        color: #eaf3f5;
+        font-size: 20px;
+        line-height: 1.55;
+      }
+
+      .prompt-line .cursor {
+        color: #39e6d0;
+      }
+
+      .repeat-label {
+        position: absolute;
+        top: 100px;
+        right: -30px;
+        color: rgba(245, 166, 35, 0.13);
+        font-family: "Bricolage Grotesque", sans-serif;
+        font-size: 176px;
+        font-weight: 800;
+        letter-spacing: -0.06em;
+        transform: rotate(90deg);
+      }
+
+      /* Scene 3 */
+      #s3 .glow { left: 500px; top: 50px; width: 1000px; height: 1000px; }
+
+      .s3-heading {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+      }
+
+      .s3-title {
+        max-width: 1040px;
+        font-size: 102px;
+        line-height: 0.92;
+      }
+
+      .s3-title span { color: #39e6d0; }
+
+      .network {
+        position: relative;
+        flex: 1;
+        min-height: 610px;
+      }
+
+      .trail-svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+      }
+
+      .trail-svg path {
+        fill: none;
+        stroke: #39e6d0;
+        stroke-width: 4;
+        stroke-linecap: round;
+        stroke-dasharray: 8 15;
+        filter: drop-shadow(0 0 8px rgba(57, 230, 208, 0.65));
+      }
+
+      .hub {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 430px;
+        height: 250px;
+        border: 2px solid #39e6d0;
+        border-radius: 28px;
+        background: #0a1721;
+        box-shadow: 0 0 0 14px rgba(57, 230, 208, 0.045), 0 0 90px rgba(57, 230, 208, 0.2);
+        transform: translate(-50%, -50%);
+      }
+
+      .hub .wordmark {
+        font-family: "Bricolage Grotesque", sans-serif;
+        font-size: 70px;
+        font-weight: 800;
+        letter-spacing: -0.05em;
+      }
+
+      .hub .local {
+        margin-top: 12px;
+        color: #9fb0b8;
+        font-size: 17px;
+      }
+
+      .agent-node {
+        position: absolute;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        min-width: 245px;
+        padding: 20px 24px;
+        border: 1px solid rgba(159, 176, 184, 0.34);
+        border-radius: 16px;
+        background: rgba(10, 23, 33, 0.96);
+        font-size: 21px;
+      }
+
+      .agent-node:nth-of-type(1) { left: 32px; top: 62px; }
+      .agent-node:nth-of-type(2) { right: 28px; top: 62px; }
+      .agent-node:nth-of-type(3) { left: 108px; bottom: 52px; }
+      .agent-node:nth-of-type(4) { right: 110px; bottom: 52px; }
+
+      .agent-node b {
+        color: #39e6d0;
+        font-weight: 600;
+      }
+
+      /* Scene 4 */
+      #s4 .glow { right: -280px; bottom: -340px; }
+
+      .s4-layout {
+        display: grid;
+        grid-template-columns: 0.72fr 1.28fr;
+        align-items: center;
+        flex: 1;
+        gap: 86px;
+      }
+
+      .s4-title {
+        font-size: 122px;
+        line-height: 0.93;
+      }
+
+      .s4-title span {
+        display: block;
+        color: #39e6d0;
+      }
+
+      .recall-panel {
+        min-height: 650px;
+        padding: 30px;
+      }
+
+      .recall-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 24px;
+        padding-bottom: 22px;
+        border-bottom: 1px solid rgba(159, 176, 184, 0.22);
+      }
+
+      .recall-mode {
+        color: #39e6d0;
+        font-size: 20px;
+      }
+
+      .demo-label {
+        color: #9fb0b8;
+        font-size: 13px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .memory-row {
+        display: grid;
+        grid-template-columns: 144px 1fr 210px;
+        align-items: center;
+        gap: 20px;
+        min-height: 118px;
+        padding: 20px 8px;
+        border-bottom: 1px solid rgba(159, 176, 184, 0.14);
+      }
+
+      .memory-id {
+        color: #39e6d0;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .memory-copy {
+        color: #eaf3f5;
+        font-size: 18px;
+        line-height: 1.45;
+      }
+
+      .memory-tag {
+        justify-self: end;
+        padding: 8px 11px;
+        border: 1px solid rgba(245, 166, 35, 0.42);
+        border-radius: 8px;
+        color: #f5a623;
+        font-size: 14px;
+      }
+
+      .recall-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 24px;
+        color: #9fb0b8;
+        font-size: 16px;
+      }
+
+      .recall-foot strong {
+        color: #eaf3f5;
+        font-weight: 500;
+      }
+
+      /* Scene 5 */
+      #s5 .glow { left: -260px; top: -350px; }
+
+      .s5-title-row {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+      }
+
+      .s5-title {
+        max-width: 960px;
+        font-size: 104px;
+        line-height: 0.93;
+      }
+
+      .s5-title span { color: #39e6d0; }
+
+      .file-panel {
+        display: grid;
+        grid-template-columns: 300px 1fr;
+        flex: 1;
+        min-height: 560px;
+        overflow: hidden;
+      }
+
+      .file-sidebar {
+        padding: 30px;
+        border-right: 1px solid rgba(159, 176, 184, 0.2);
+        color: #9fb0b8;
+        font-size: 16px;
+      }
+
+      .file-sidebar strong {
+        display: block;
+        margin: 20px 0 12px;
+        color: #eaf3f5;
+        font-size: 20px;
+        font-weight: 500;
+      }
+
+      .file-sidebar .local-badge {
+        margin-top: 210px;
+        color: #39e6d0;
+      }
+
+      .jsonl {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 16px;
+        padding: 36px 46px;
+        font-size: 20px;
+        line-height: 1.4;
+      }
+
+      .json-line {
+        color: #eaf3f5;
+      }
+
+      .json-key { color: #39e6d0; }
+      .json-value { color: #c7d4d8; }
+      .json-accent { color: #f5a623; }
+
+      /* Scene 6 */
+      #s6 .glow { right: 170px; top: -420px; width: 1200px; height: 1200px; }
+
+      .s6-layout {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        flex: 1;
+      }
+
+      .s6-title {
+        max-width: 1050px;
+        font-size: 95px;
+        line-height: 0.95;
+      }
+
+      .proof-list {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+
+      .proof-item {
+        display: grid;
+        grid-template-columns: 170px 1fr 320px;
+        align-items: center;
+        min-height: 150px;
+        border-top: 1px solid rgba(159, 176, 184, 0.22);
+      }
+
+      .proof-item:last-child {
+        border-bottom: 1px solid rgba(159, 176, 184, 0.22);
+      }
+
+      .proof-index {
+        color: #39e6d0;
+        font-size: 19px;
+        letter-spacing: 0.1em;
+      }
+
+      .proof-word {
+        font-family: "Bricolage Grotesque", sans-serif;
+        font-size: 76px;
+        font-weight: 800;
+        letter-spacing: -0.045em;
+      }
+
+      .proof-note {
+        justify-self: end;
+        color: #9fb0b8;
+        font-size: 17px;
+        line-height: 1.45;
+      }
+
+      /* Scene 7 */
+      #s7 .glow { left: 500px; top: -180px; width: 1100px; height: 1100px; }
+
+      .s7-layout {
+        display: grid;
+        grid-template-columns: 0.92fr 1.08fr;
+        align-items: center;
+        flex: 1;
+        gap: 110px;
+      }
+
+      .s7-wordmark {
+        font-family: "Bricolage Grotesque", sans-serif;
+        font-size: 146px;
+        font-weight: 800;
+        letter-spacing: -0.06em;
+        line-height: 0.86;
+      }
+
+      .s7-tagline {
+        max-width: 770px;
+        margin-top: 28px;
+        color: #b9c9ce;
+        font-size: 32px;
+        line-height: 1.4;
+      }
+
+      .s7-tagline strong {
+        color: #39e6d0;
+        font-weight: 500;
+      }
+
+      .cta-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+      }
+
+      .command-box {
+        padding: 34px 38px;
+        border: 2px solid #39e6d0;
+        border-radius: 20px;
+        background: #0a1721;
+        box-shadow: 0 0 70px rgba(57, 230, 208, 0.12);
+        color: #eaf3f5;
+        font-size: 26px;
+      }
+
+      .command-box .prompt { color: #39e6d0; }
+      .command-box .install { color: #f5a623; }
+
+      .repo-box {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 24px 30px;
+        color: #c7d4d8;
+        font-size: 19px;
+      }
+
+      .repo-box strong {
+        color: #eaf3f5;
+        font-weight: 500;
+      }
+
+      .open-source {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        color: #9fb0b8;
+        font-size: 16px;
+      }
+
+      .open-source b {
+        color: #39e6d0;
+        font-weight: 600;
+      }
+
+      /* Captions and transitions */
+      .caption-layer {
+        position: absolute;
+        inset: 0;
+        z-index: 40;
+        pointer-events: none;
+      }
+
+      .caption-group {
+        position: absolute;
+        left: 0;
+        bottom: 58px;
+        display: flex;
+        justify-content: center;
+        width: 100%;
+        height: 68px;
+        padding: 0 160px;
+        opacity: 0;
+        visibility: hidden;
+      }
+
+      .caption-group span {
+        display: inline-flex;
+        align-items: center;
+        max-width: 1500px;
+        padding: 13px 24px;
+        border: 1px solid rgba(159, 176, 184, 0.28);
+        border-radius: 13px;
+        background: rgba(3, 10, 15, 0.9);
+        box-shadow: 0 10px 38px rgba(0, 0, 0, 0.34);
+        color: #eaf3f5;
+        font-size: 22px;
+        font-weight: 450;
+        line-height: 1.25;
+        text-align: center;
+      }
+
+      .caption-group strong {
+        color: #39e6d0;
+        font-weight: 650;
+      }
+
+      #flash-overlay,
+      #final-black {
+        position: absolute;
+        inset: 0;
+        z-index: 80;
+        pointer-events: none;
+        opacity: 0;
+      }
+
+      #flash-overlay { background: #eaf3f5; }
+      #final-black { background: #03080c; }
+    </style>
+  </head>
+  <body>
+    <div data-hf-id="hf-sebc" id="root" data-composition-id="main" data-start="0" data-duration="28" data-width="1920" data-height="1080">
+      <section data-hf-id="hf-mcnq" id="s1" class="scene">
+        <div data-hf-id="hf-80b5" class="grid" data-layout-ignore=""></div>
+        <div data-hf-id="hf-78qa" class="glow" data-layout-ignore=""></div>
+        <div data-hf-id="hf-c4e1" class="ghost-404" data-layout-ignore="">404</div>
+        <div data-hf-id="hf-cn5c" class="scene-content">
+          <div data-hf-id="hf-gxgs" class="meta-row"><span data-hf-id="hf-wtcx">00 / lost context</span></div>
+          <div data-hf-id="hf-2f2v" class="s1-layout">
+            <div data-hf-id="hf-yeow">
+              <div data-hf-id="hf-78ei" class="eyebrow">Switch agent. Start cold.</div>
+              <h1 data-hf-id="hf-nerh" class="display s1-title">
+                <span data-hf-id="hf-nt1j">Your agent</span>
+                <span data-hf-id="hf-b7gk">forgot.</span>
+                <span data-hf-id="hf-ognl" class="again">Again.</span>
+              </h1>
+            </div>
+            <div data-hf-id="hf-w978" class="s1-side">
+              <div data-hf-id="hf-jt1u" class="panel agent-switch"><span data-hf-id="hf-upxh">Codex → Claude Code</span><span data-hf-id="hf-ih40" class="lost">context lost</span></div>
+              <div data-hf-id="hf-6qxe" class="memory-shard"><strong data-hf-id="hf-2ca8">decision</strong><span data-hf-id="hf-3rky">Use session tokens for the auth flow.</span></div>
+              <div data-hf-id="hf-itjq" class="memory-shard"><strong data-hf-id="hf-11zr">project rule</strong><span data-hf-id="hf-07gq">Keep the first release local-first.</span></div>
+              <div data-hf-id="hf-j7ur" class="memory-shard"><strong data-hf-id="hf-tsuz">preference</strong><span data-hf-id="hf-g7w7">Show evidence before changing behavior.</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section data-hf-id="hf-iejp" id="s2" class="scene">
+        <div data-hf-id="hf-8b9h" class="grid" data-layout-ignore=""></div>
+        <div data-hf-id="hf-vk5v" class="glow amber" data-layout-ignore=""></div>
+        <div data-hf-id="hf-o0eg" class="scene-content">
+          <div data-hf-id="hf-eosk" class="meta-row"><span data-hf-id="hf-6afu">01 / the context tax</span></div>
+          <div data-hf-id="hf-ufam" class="s2-layout">
+            <div data-hf-id="hf-y7yw">
+              <div data-hf-id="hf-uryo" class="eyebrow">Same repo. Same rules.</div>
+              <h2 data-hf-id="hf-vlxu" class="display s2-title">Switch tools. <em data-hf-id="hf-c8ah">Rebuild context.</em></h2>
+            </div>
+            <div data-hf-id="hf-my7d" class="prompt-stack">
+              <div data-hf-id="hf-cwnd" class="prompt-window panel">
+                <div data-hf-id="hf-85t8" class="window-bar"><i data-hf-id="hf-wt6k"></i><i data-hf-id="hf-zeb8"></i><i data-hf-id="hf-y7e5"></i><span data-hf-id="hf-1vio">Codex</span></div>
+                <div data-hf-id="hf-dzua" class="prompt-line"><span data-hf-id="hf-jvvj" class="cursor">›</span> Before we start, here is how this repo works...</div>
+              </div>
+              <div data-hf-id="hf-szst" class="prompt-window panel">
+                <div data-hf-id="hf-ws90" class="window-bar"><i data-hf-id="hf-ylp6"></i><i data-hf-id="hf-0l8b"></i><i data-hf-id="hf-0zjc"></i><span data-hf-id="hf-w2n4">Claude Code</span></div>
+                <div data-hf-id="hf-ujxy" class="prompt-line"><span data-hf-id="hf-bt7j" class="cursor">›</span> Before we start, here is how this repo works...</div>
+              </div>
+              <div data-hf-id="hf-u6pw" class="prompt-window panel">
+                <div data-hf-id="hf-vlbx" class="window-bar"><i data-hf-id="hf-zsm9"></i><i data-hf-id="hf-06xa"></i><i data-hf-id="hf-26gf"></i><span data-hf-id="hf-cp54">Gemini CLI</span></div>
+                <div data-hf-id="hf-uy8z" class="prompt-line"><span data-hf-id="hf-bewi" class="cursor">›</span> Before we start, here is how this repo works...</div>
+              </div>
+              <div data-hf-id="hf-28vs" class="repeat-label" data-layout-ignore="">RETYPE</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section data-hf-id="hf-hmvw" id="s3" class="scene">
+        <div data-hf-id="hf-9i6k" class="grid" data-layout-ignore=""></div>
+        <div data-hf-id="hf-dg3a" class="glow" data-layout-ignore=""></div>
+        <div data-hf-id="hf-mthd" class="scene-content">
+          <div data-hf-id="hf-dhvh" class="meta-row"><span data-hf-id="hf-e668">02 / one memory layer</span></div>
+          <div data-hf-id="hf-f8rf" class="s3-heading">
+            <h2 data-hf-id="hf-v0p5" class="display s3-title">One local memory layer. <span data-hf-id="hf-4o5f">Every coding agent.</span></h2>
+            <div data-hf-id="hf-o8jl" class="pill"><i data-hf-id="hf-6bgx" class="dot"></i> MCP-native</div>
+          </div>
+          <div data-hf-id="hf-3gai" class="network">
+            <svg data-hf-id="hf-hg7p" class="trail-svg" viewBox="0 0 1684 610" aria-hidden="true" data-layout-ignore="">
+              <path data-hf-id="hf-4h6r" d="M280 120 C520 120 490 290 770 305" />
+              <path data-hf-id="hf-4gv6" d="M1404 120 C1160 120 1180 290 914 305" />
+              <path data-hf-id="hf-x3jo" d="M350 530 C560 530 550 350 770 320" />
+              <path data-hf-id="hf-c97r" d="M1334 530 C1120 530 1135 360 914 320" />
+            </svg>
+            <div data-hf-id="hf-jv8o" class="agent-node"><i data-hf-id="hf-0j5x" class="dot"></i><span data-hf-id="hf-uckh"><b data-hf-id="hf-mc10">Codex</b></span></div>
+            <div data-hf-id="hf-w0yo" class="agent-node"><i data-hf-id="hf-1q30" class="dot"></i><span data-hf-id="hf-8x20">Claude Code</span></div>
+            <div data-hf-id="hf-uu1l" class="agent-node"><i data-hf-id="hf-1brz" class="dot"></i><span data-hf-id="hf-vybw">opencode</span></div>
+            <div data-hf-id="hf-v8cm" class="agent-node"><i data-hf-id="hf-2ip2" class="dot"></i><span data-hf-id="hf-ofk0">Gemini CLI</span></div>
+            <div data-hf-id="hf-py4l" class="hub">
+              <div data-hf-id="hf-7bkd" class="wordmark">Pathmark</div>
+              <div data-hf-id="hf-2sru" class="local">~/.pathmark/memory/memory.jsonl</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section data-hf-id="hf-54df" id="s4" class="scene">
+        <div data-hf-id="hf-93vj" class="grid" data-layout-ignore=""></div>
+        <div data-hf-id="hf-zsc3" class="glow amber" data-layout-ignore=""></div>
+        <div data-hf-id="hf-n7se" class="scene-content">
+          <div data-hf-id="hf-dw6i" class="meta-row"><span data-hf-id="hf-lrq4">03 / transparent recall</span></div>
+          <div data-hf-id="hf-6bq8" class="s4-layout">
+            <div data-hf-id="hf-x11t">
+              <div data-hf-id="hf-tg40" class="eyebrow">Relevant context in.</div>
+              <h2 data-hf-id="hf-lr8i" class="display s4-title">Recall. <span data-hf-id="hf-vw14">With receipts.</span></h2>
+            </div>
+            <div data-hf-id="hf-hcag" class="recall-panel panel">
+              <div data-hf-id="hf-7mjy" class="recall-head">
+                <div data-hf-id="hf-smse" class="recall-mode">mode: transparent_recall</div>
+                <div data-hf-id="hf-gfdo" class="demo-label">synthetic demo records</div>
+              </div>
+              <div data-hf-id="hf-m3qq" class="memory-row">
+                <div data-hf-id="hf-4wi9" class="memory-id">7c2e…91af</div>
+                <div data-hf-id="hf-ltta" class="memory-copy">Use session tokens for the auth flow.</div>
+                <div data-hf-id="hf-xer8" class="memory-tag">decision</div>
+              </div>
+              <div data-hf-id="hf-tzjq" class="memory-row">
+                <div data-hf-id="hf-rw5u" class="memory-id">b18d…42c7</div>
+                <div data-hf-id="hf-m6fi" class="memory-copy">Keep the first release local-first.</div>
+                <div data-hf-id="hf-x497" class="memory-tag">project rule</div>
+              </div>
+              <div data-hf-id="hf-udur" class="memory-row">
+                <div data-hf-id="hf-rszh" class="memory-id">34a9…f120</div>
+                <div data-hf-id="hf-9a3n" class="memory-copy">Show evidence before changing behavior.</div>
+                <div data-hf-id="hf-kg8v" class="memory-tag">preference</div>
+              </div>
+              <div data-hf-id="hf-okdo" class="recall-foot"><span data-hf-id="hf-aaov">usedMemories</span><strong data-hf-id="hf-gcc8">exact IDs · sources · tags · previews</strong></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section data-hf-id="hf-yynm" id="s5" class="scene">
+        <div data-hf-id="hf-aasm" class="grid" data-layout-ignore=""></div>
+        <div data-hf-id="hf-dueb" class="glow" data-layout-ignore=""></div>
+        <div data-hf-id="hf-m0vb" class="scene-content">
+          <div data-hf-id="hf-fvpn" class="meta-row"><span data-hf-id="hf-nook">04 / inspectable by default</span></div>
+          <div data-hf-id="hf-446y" class="s5-title-row">
+            <h2 data-hf-id="hf-ww6b" class="display s5-title">Plain files. <span data-hf-id="hf-37vc">On your machine.</span></h2>
+            <div data-hf-id="hf-4evd" class="pill"><i data-hf-id="hf-24e1" class="dot"></i> JSONL</div>
+          </div>
+          <div data-hf-id="hf-ntwx" class="file-panel panel">
+            <aside data-hf-id="hf-k67b" class="file-sidebar">
+              LOCAL MEMORY
+              <strong data-hf-id="hf-h7rd">memory.jsonl</strong>
+              1 record per line
+              <div data-hf-id="hf-ekc4" class="local-badge">● local store active</div>
+            </aside>
+            <div data-hf-id="hf-9a6m" class="jsonl">
+              <div data-hf-id="hf-8ksi" class="json-line">{</div>
+              <div data-hf-id="hf-jywp" class="json-line">&#160;&#160;<span data-hf-id="hf-9mli" class="json-key">"id"</span>: <span data-hf-id="hf-o6fb" class="json-value">"7c2e…91af"</span>,</div>
+              <div data-hf-id="hf-qdsd" class="json-line">&#160;&#160;<span data-hf-id="hf-346r" class="json-key">"kind"</span>: <span data-hf-id="hf-4tgr" class="json-accent">"memory"</span>,</div>
+              <div data-hf-id="hf-rkpg" class="json-line">&#160;&#160;<span data-hf-id="hf-rej8" class="json-key">"text"</span>: <span data-hf-id="hf-tdl2" class="json-value">"Keep the first release local-first."</span>,</div>
+              <div data-hf-id="hf-t9gt" class="json-line">&#160;&#160;<span data-hf-id="hf-kb8m" class="json-key">"tags"</span>: [<span data-hf-id="hf-mg8x" class="json-value">"project:demo"</span>],</div>
+              <div data-hf-id="hf-r6ef" class="json-line">&#160;&#160;<span data-hf-id="hf-609a" class="json-key">"source"</span>: <span data-hf-id="hf-af5t" class="json-value">"mcp"</span>,</div>
+              <div data-hf-id="hf-1o2d" class="json-line">&#160;&#160;<span data-hf-id="hf-isxw" class="json-key">"createdAt"</span>: <span data-hf-id="hf-iv6b" class="json-value">"2026-07-10T13:00:00Z"</span></div>
+              <div data-hf-id="hf-aymo" class="json-line">}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section data-hf-id="hf-v0jl" id="s6" class="scene">
+        <div data-hf-id="hf-9whl" class="grid" data-layout-ignore=""></div>
+        <div data-hf-id="hf-ze12" class="glow amber" data-layout-ignore=""></div>
+        <div data-hf-id="hf-mf6c" class="scene-content">
+          <div data-hf-id="hf-ga0o" class="meta-row"><span data-hf-id="hf-ej13">05 / local-first start</span></div>
+          <div data-hf-id="hf-qllu" class="s6-layout">
+            <h2 data-hf-id="hf-pckp" class="display s6-title">Start without handing your memory to another service.</h2>
+            <div data-hf-id="hf-08lz" class="proof-list">
+              <div data-hf-id="hf-3mn2" class="proof-item"><span data-hf-id="hf-kot5" class="proof-index">01</span><span data-hf-id="hf-bnzw" class="proof-word">No account.</span><span data-hf-id="hf-8xo1" class="proof-note">Install and run locally.</span></div>
+              <div data-hf-id="hf-rn0i" class="proof-item"><span data-hf-id="hf-lvq8" class="proof-index">02</span><span data-hf-id="hf-i4u0" class="proof-word">No API key.</span><span data-hf-id="hf-inx7" class="proof-note">Client-side synthesis by default.</span></div>
+              <div data-hf-id="hf-s1bj" class="proof-item"><span data-hf-id="hf-lhf7" class="proof-index">03</span><span data-hf-id="hf-zo1l" class="proof-word">No vendor backend.</span><span data-hf-id="hf-6pkh" class="proof-note">Your local JSONL store.</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section data-hf-id="hf-u8vs" id="s7" class="scene">
+        <div data-hf-id="hf-b3eo" class="grid" data-layout-ignore=""></div>
+        <div data-hf-id="hf-e8pc" class="glow" data-layout-ignore=""></div>
+        <div data-hf-id="hf-l899" class="scene-content">
+          <div data-hf-id="hf-f33l" class="meta-row"><span data-hf-id="hf-oqbh">06 / open source · MIT · v0.1.5</span></div>
+          <div data-hf-id="hf-080d" class="s7-layout">
+            <div data-hf-id="hf-xfcu">
+              <div data-hf-id="hf-8g0i" class="s7-wordmark">Pathmark</div>
+              <div data-hf-id="hf-5pev" class="s7-tagline">Switch agents. <strong data-hf-id="hf-hyv7">Keep the context.</strong></div>
+            </div>
+            <div data-hf-id="hf-8025" class="cta-stack">
+              <div data-hf-id="hf-uxxy" class="command-box"><span data-hf-id="hf-99ip" class="prompt">$</span> npm <span data-hf-id="hf-li1j" class="install">install -g</span> pathmark</div>
+              <div data-hf-id="hf-wf7q" class="repo-box panel"><span data-hf-id="hf-xotq">github.com/<strong data-hf-id="hf-bip4">hacksurvivor/pathmark</strong></span><span data-hf-id="hf-o03m">↗</span></div>
+              <div data-hf-id="hf-ra6m" class="open-source"><i data-hf-id="hf-3bb4" class="dot"></i><b data-hf-id="hf-esry">Open source</b><span data-hf-id="hf-r4t1">MIT License · local-first memory for MCP clients</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div data-hf-id="hf-9flp" class="caption-layer" aria-hidden="true">
+        <div data-hf-id="hf-9omh" id="cap-0" class="caption-group"><span data-hf-id="hf-0k0q">Every time you switch coding agents, your context disappears.</span></div>
+        <div data-hf-id="hf-8wyo" id="cap-1" class="caption-group"><span data-hf-id="hf-0o1s">The decisions. The rules. The why behind the code.</span></div>
+        <div data-hf-id="hf-jsgb" id="cap-2" class="caption-group"><span data-hf-id="hf-pydr"><strong data-hf-id="hf-lxqk">Pathmark</strong>&#160;gives Codex, Claude Code, and opencode…</span></div>
+        <div data-hf-id="hf-fuca" id="cap-3" class="caption-group"><span data-hf-id="hf-c3z3">Gemini CLI, Cursor, and any MCP client one local memory layer.</span></div>
+        <div data-hf-id="hf-x2ml" id="cap-4" class="caption-group"><span data-hf-id="hf-91pp">It recalls what matters and shows exactly which memories it used.</span></div>
+        <div data-hf-id="hf-ways" id="cap-5" class="caption-group"><span data-hf-id="hf-52lr">Everything stays in a plain JSONL file on your machine.</span></div>
+        <div data-hf-id="hf-4yun" id="cap-6" class="caption-group"><span data-hf-id="hf-w0ea">No account. No API key. No vendor backend.</span></div>
+        <div data-hf-id="hf-10qm" id="cap-7" class="caption-group"><span data-hf-id="hf-hvfb">Install&#160;<strong data-hf-id="hf-3z8k">Pathmark</strong>. Switch agents. Keep the context.</span></div>
+      </div>
+
+      <div data-hf-id="hf-53gx" id="flash-overlay" data-layout-ignore="" data-hidden=""></div>
+      <div data-hf-id="hf-yyua" id="final-black" data-layout-ignore=""></div>
+
+      <audio data-hf-id="hf-i6ez" id="soundbed" class="clip" data-start="0" data-duration="28" data-track-index="10" src="soundbed.wav" data-volume="0.42"></audio>
+      <audio data-hf-id="hf-q4hd" id="narration" class="clip" data-start="0.45" data-duration="24.2" data-track-index="11" src="narration-master.wav" data-volume="1"></audio>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+
+      function push(oldScene, newScene, at, direction) {
+        var width = direction * 1920;
+        tl.set(newScene, { opacity: 1, x: width }, at);
+        tl.to(oldScene, { x: -width, duration: 0.46, ease: "power3.inOut" }, at);
+        tl.to(newScene, { x: 0, duration: 0.46, ease: "power3.inOut" }, at);
+        tl.set(oldScene, { opacity: 0, x: 0 }, at + 0.47);
+      }
+
+      function addCaption(selector, start, end) {
+        tl.set(selector, { visibility: "visible", opacity: 0, y: 18 }, start);
+        tl.to(selector, { opacity: 1, y: 0, duration: 0.2, ease: "power3.out" }, start);
+        tl.to(selector, { opacity: 0, y: -10, duration: 0.12, ease: "power2.in" }, end - 0.12);
+        tl.set(selector, { opacity: 0, visibility: "hidden" }, end);
+      }
+
+      // Scene 1: build the loss.
+      tl.from("#s1 .grid", { opacity: 0, scale: 1.05, duration: 0.9, ease: "sine.out" }, 0.14);
+      tl.from("#s1 .glow", { opacity: 0, scale: 0.72, duration: 1.25, ease: "power1.out" }, 0.2);
+      tl.from("#s1 .meta-row", { x: -55, opacity: 0, duration: 0.48, ease: "expo.out" }, 0.22);
+      tl.from("#s1 .eyebrow", { x: -38, opacity: 0, duration: 0.42, ease: "power2.out" }, 0.34);
+      tl.from("#s1 .s1-title span", { y: 72, opacity: 0, rotation: 1.2, duration: 0.58, stagger: 0.1, ease: "power4.out" }, 0.42);
+      tl.from("#s1 .agent-switch", { x: 70, opacity: 0, duration: 0.44, ease: "back.out(1.25)" }, 0.66);
+      tl.from("#s1 .memory-shard", { x: 48, opacity: 0, scale: 0.98, duration: 0.38, stagger: 0.11, ease: "expo.out" }, 0.83);
+      tl.from("#s1 .ghost-404", { opacity: 0, x: 90, duration: 1.5, ease: "sine.out" }, 0.3);
+      tl.to("#s1 .glow", { scale: 1.08, x: -40, duration: 0.88, repeat: 1, yoyo: true, ease: "sine.inOut" }, 1.46);
+
+      // Scene 2 transition + entrances.
+      push("#s1", "#s2", 3.35, 1);
+      tl.from("#s2 .grid", { opacity: 0, x: 70, duration: 0.82, ease: "sine.out" }, 3.82);
+      tl.from("#s2 .glow", { opacity: 0, scale: 0.75, duration: 1.2, ease: "power1.out" }, 3.86);
+      tl.from("#s2 .meta-row", { y: -30, opacity: 0, duration: 0.38, ease: "power3.out" }, 3.88);
+      tl.from("#s2 .eyebrow", { x: -44, opacity: 0, duration: 0.36, ease: "expo.out" }, 3.94);
+      tl.from("#s2 .s2-title", { y: 58, opacity: 0, scale: 0.98, duration: 0.58, ease: "power4.out" }, 4.02);
+      tl.from("#s2 .prompt-window", { x: 110, opacity: 0, rotation: 1.5, duration: 0.43, stagger: 0.12, ease: "back.out(1.15)" }, 4.1);
+      tl.from("#s2 .repeat-label", { opacity: 0, scale: 0.84, duration: 0.75, ease: "sine.out" }, 4.3);
+      tl.to("#s2 .prompt-window", { y: -8, duration: 1.1, stagger: 0.08, repeat: 1, yoyo: true, ease: "sine.inOut" }, 4.9);
+
+      // Scene 3: overexposure reveal.
+      tl.to("#s2", { filter: "brightness(1.5)", scale: 1.03, duration: 0.2, ease: "power1.in" }, 6.25);
+      tl.to("#s2", { filter: "brightness(3)", scale: 1.06, duration: 0.2, ease: "power2.in" }, 6.45);
+      tl.to("#flash-overlay", { opacity: 0.5, duration: 0.25, ease: "power1.in" }, 6.4);
+      tl.to("#flash-overlay", { opacity: 1, duration: 0.15, ease: "power2.in" }, 6.65);
+      tl.set("#s2", { opacity: 0, filter: "brightness(1)", scale: 1 }, 6.81);
+      tl.set("#s3", { opacity: 1 }, 6.81);
+      tl.to("#flash-overlay", { opacity: 0, duration: 0.35, ease: "power2.out" }, 6.81);
+      tl.from("#s3 .grid", { opacity: 0, scale: 1.06, duration: 0.95, ease: "sine.out" }, 6.84);
+      tl.from("#s3 .glow", { opacity: 0, scale: 0.62, duration: 1.3, ease: "power1.out" }, 6.88);
+      tl.from("#s3 .meta-row", { x: -52, opacity: 0, duration: 0.4, ease: "expo.out" }, 6.9);
+      tl.from("#s3 .s3-title", { y: 52, opacity: 0, scale: 0.98, duration: 0.56, ease: "power4.out" }, 7.0);
+      tl.from("#s3 .pill", { x: 48, opacity: 0, rotation: -2, duration: 0.43, ease: "back.out(1.3)" }, 7.14);
+      tl.from("#s3 .hub", { scale: 0.72, opacity: 0, duration: 0.62, ease: "expo.out" }, 7.28);
+      tl.from("#s3 .trail-svg path", { strokeDashoffset: 600, opacity: 0, duration: 0.9, stagger: 0.08, ease: "power2.out" }, 7.45);
+      tl.from("#s3 .agent-node", { scale: 0.86, opacity: 0, duration: 0.38, stagger: 0.1, ease: "back.out(1.45)" }, 7.62);
+      tl.to("#s3 .hub", { boxShadow: "0 0 0 22px rgba(57, 230, 208, 0.025), 0 0 120px rgba(57, 230, 208, 0.26)", duration: 1.5, repeat: 2, yoyo: true, ease: "sine.inOut" }, 8.1);
+      tl.to("#s3 .trail-svg path", { strokeDashoffset: -92, duration: 1.7, repeat: 1, ease: "none" }, 8.65);
+
+      // Scene 4: auditability.
+      push("#s3", "#s4", 12.4, 1);
+      tl.from("#s4 .grid", { opacity: 0, x: 80, duration: 0.8, ease: "sine.out" }, 12.88);
+      tl.from("#s4 .glow", { opacity: 0, scale: 0.72, duration: 1.05, ease: "power1.out" }, 12.9);
+      tl.from("#s4 .meta-row", { y: -28, opacity: 0, duration: 0.34, ease: "power3.out" }, 12.94);
+      tl.from("#s4 .eyebrow", { x: -40, opacity: 0, duration: 0.34, ease: "expo.out" }, 12.98);
+      tl.from("#s4 .s4-title", { y: 62, opacity: 0, duration: 0.54, ease: "power4.out" }, 13.06);
+      tl.from("#s4 .recall-panel", { x: 90, opacity: 0, scale: 0.985, duration: 0.58, ease: "back.out(1.1)" }, 13.08);
+      tl.from("#s4 .recall-head", { y: -24, opacity: 0, duration: 0.32, ease: "power2.out" }, 13.28);
+      tl.from("#s4 .memory-row", { x: 46, opacity: 0, duration: 0.34, stagger: 0.12, ease: "expo.out" }, 13.4);
+      tl.from("#s4 .recall-foot", { y: 20, opacity: 0, duration: 0.34, ease: "back.out(1.2)" }, 13.84);
+
+      // Scene 5: local file.
+      push("#s4", "#s5", 15.9, -1);
+      tl.from("#s5 .grid", { opacity: 0, x: -72, duration: 0.78, ease: "sine.out" }, 16.38);
+      tl.from("#s5 .glow", { opacity: 0, scale: 0.7, duration: 1.1, ease: "power1.out" }, 16.4);
+      tl.from("#s5 .meta-row", { x: -52, opacity: 0, duration: 0.36, ease: "expo.out" }, 16.42);
+      tl.from("#s5 .s5-title", { y: 50, opacity: 0, duration: 0.52, ease: "power4.out" }, 16.48);
+      tl.from("#s5 .pill", { x: 42, opacity: 0, duration: 0.38, ease: "back.out(1.35)" }, 16.58);
+      tl.from("#s5 .file-panel", { y: 62, opacity: 0, scale: 0.985, duration: 0.54, ease: "power3.out" }, 16.58);
+      tl.from("#s5 .file-sidebar", { x: -46, opacity: 0, duration: 0.4, ease: "expo.out" }, 16.78);
+      tl.from("#s5 .json-line", { x: 34, opacity: 0, duration: 0.22, stagger: 0.055, ease: "power2.out" }, 16.82);
+
+      // Scene 6: proof stack.
+      push("#s5", "#s6", 18.1, 1);
+      tl.from("#s6 .grid", { opacity: 0, scale: 1.05, duration: 0.85, ease: "sine.out" }, 18.58);
+      tl.from("#s6 .glow", { opacity: 0, y: -70, duration: 1.15, ease: "power1.out" }, 18.62);
+      tl.from("#s6 .meta-row", { y: -30, opacity: 0, duration: 0.35, ease: "power3.out" }, 18.64);
+      tl.from("#s6 .s6-title", { x: -62, opacity: 0, duration: 0.56, ease: "expo.out" }, 18.72);
+      tl.from("#s6 .proof-item", { x: 75, opacity: 0, duration: 0.4, stagger: 0.18, ease: "power4.out" }, 18.9);
+      tl.from("#s6 .proof-index", { scale: 0.6, transformOrigin: "left center", opacity: 0, duration: 0.3, stagger: 0.18, ease: "back.out(1.6)" }, 19.02);
+
+      // Scene 7: call to action.
+      push("#s6", "#s7", 21.2, -1);
+      tl.from("#s7 .grid", { opacity: 0, x: -60, duration: 0.82, ease: "sine.out" }, 21.68);
+      tl.from("#s7 .glow", { opacity: 0, scale: 0.65, duration: 1.25, ease: "power1.out" }, 21.7);
+      tl.from("#s7 .meta-row", { x: -50, opacity: 0, duration: 0.36, ease: "expo.out" }, 21.72);
+      tl.from("#s7 .s7-wordmark", { y: 70, opacity: 0, scale: 0.96, duration: 0.62, ease: "power4.out" }, 21.82);
+      tl.from("#s7 .s7-tagline", { x: -44, opacity: 0, duration: 0.42, ease: "back.out(1.2)" }, 22.02);
+      tl.from("#s7 .command-box", { x: 90, opacity: 0, scale: 0.98, duration: 0.54, ease: "expo.out" }, 21.9);
+      tl.from("#s7 .repo-box", { x: 70, opacity: 0, duration: 0.42, ease: "power3.out" }, 22.12);
+      tl.from("#s7 .open-source", { y: 28, opacity: 0, duration: 0.4, ease: "back.out(1.35)" }, 22.3);
+      tl.to("#s7 .command-box", { boxShadow: "0 0 95px rgba(57, 230, 208, 0.2)", duration: 1.4, repeat: 2, yoyo: true, ease: "sine.inOut" }, 22.6);
+
+      // Captions, timed from the generated narration.
+      addCaption("#cap-0", 0.45, 3.18);
+      addCaption("#cap-1", 3.66, 5.98);
+      addCaption("#cap-2", 6.54, 8.9);
+      addCaption("#cap-3", 9.08, 12.3);
+      addCaption("#cap-4", 12.8, 15.82);
+      addCaption("#cap-5", 15.82, 17.72);
+      addCaption("#cap-6", 18.26, 21.12);
+      addCaption("#cap-7", 21.54, 24.35);
+
+      // Final scene only: resolve to black.
+      tl.to("#s7 .scene-content", { opacity: 0, y: -18, duration: 0.46, ease: "power2.in" }, 27.3);
+      tl.to("#s7 .grid, #s7 .glow", { opacity: 0, duration: 0.48, ease: "power1.in" }, 27.34);
+      tl.to("#final-black", { opacity: 1, duration: 0.62, ease: "sine.inOut" }, 27.36);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

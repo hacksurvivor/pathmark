@@ -1,5 +1,6 @@
 import { tokenizeSearchText } from "./tokenize.js";
 const GENERIC_TERMS = new Set([
+    "agent",
     "assistant",
     "codex",
     "coding",
@@ -10,17 +11,23 @@ const GENERIC_TERMS = new Set([
     "home",
     "immediate",
     "memory",
+    "memories",
     "preferences",
     "project",
     "prompt",
     "recall",
     "role",
     "session",
+    "solution",
+    "solutions",
+    "system",
+    "systems",
     "thread",
     "user",
     "workspace",
 ]);
 const LOW_INFORMATION_TERMS = new Set([
+    "check",
     "fine",
     "fix",
     "good",
@@ -32,25 +39,56 @@ const LOW_INFORMATION_TERMS = new Set([
     "sure",
     "totally",
     "well",
+    "важно",
+    "допустим",
+    "другие",
+    "других",
+    "безупречно",
+    "круто",
+    "можем",
+    "можешь",
+    "наша",
+    "нужен",
+    "нужна",
+    "нужно",
+    "нужны",
+    "передовых",
+    "передовые",
+    "пожалуйста",
+    "позаимствовать",
+    "посмотреть",
+    "работает",
+    "решение",
+    "решения",
+    "система",
+    "системы",
+    "также",
+    "убедись",
+    "убедиться",
+    "варианты",
+    "хватает",
+    "хорошо",
+    "ошибок",
 ]);
 const ENGLISH_STOP_WORDS = new Set("a about after all also an and are as at be because before both but by can could did do does each for from had has have how i if in into is it its may more most my no not of on one only or our out over same should so some than that the their them then there these they this those through to up use was we were what when where which while who will with without would you your".split(" "));
-const RUSSIAN_STOP_WORDS = new Set("а без более был была были было быть бы в вам вас ведь весь во вот все всего всех вы где да даже для до его ее если есть еще же за зачем здесь и из или им их к как когда конечно кто ли между меня мне много может мой мы на надо над нас не него нее нет ни них но ну о об один он она они от перед по под после потому почти при про раз разве сам себя со с так такой там тебя тем то того тоже только том тот тут ты у уже хоть чем через что чтобы этот этого этой эти это я".split(" "));
+const RUSSIAN_STOP_WORDS = new Set("а без более был была были было быть бы в вам вас ведь весь во вот все всего всех вы где да даже для до его ее если есть еще же за зачем здесь и из или им их к как когда конечно которые который которая которое которых кто ли между меня мне много может мой мы на надо над нам нами нас не него нее нет ни них но ну о об один он она они от очень перед по под после потому почти при про раз разве сам себя со с так такой там тебя тем то того тоже только том тот тут ты у уже хоть чего чем через что что-то чтобы этот этого этой эти это я".split(" "));
 const METADATA_TERM = /^(?:[0-9a-f]{4,}|\d{4,})$/i;
 const NEAR_DUPLICATE_CONTAINMENT = 0.82;
 const RELATIVE_RELEVANCE_CUTOFF = 0.6;
-export function selectRelevantResults(results, query, limit) {
+export function selectRelevantResults(results, query, limit, options = {}) {
     if (results.length === 0 || limit <= 0)
         return [];
-    const queryTerms = informativeTerms(query);
+    const queryTerms = informativeSearchTerms(query);
     const signalResults = filterLowSignalResults(results);
     if (queryTerms.size === 0)
         return [];
     const queryWeight = [...queryTerms].reduce((total, term) => total + termWeight(term), 0);
-    const requiredMatches = Math.min(3, Math.max(1, Math.ceil(queryTerms.size * 0.34)));
+    const defaultRequiredMatches = Math.min(3, Math.max(1, Math.ceil(queryTerms.size * 0.34)));
+    const requiredMatches = Math.min(defaultRequiredMatches, Math.max(1, options.maxRequiredMatches ?? defaultRequiredMatches));
     const ranked = signalResults
         .map((result) => {
-        const textTerms = informativeTerms(result.record.text);
-        const scopeTerms = informativeTerms(result.record.tags.filter((tag) => tag.startsWith("project:") || tag.startsWith("namespace:")).join(" "));
+        const textTerms = informativeSearchTerms(result.record.text);
+        const scopeTerms = informativeSearchTerms(result.record.tags.filter((tag) => tag.startsWith("project:") || tag.startsWith("namespace:")).join(" "));
         const terms = new Set([...textTerms, ...scopeTerms]);
         const matched = [...queryTerms].filter((term) => terms.has(term));
         const matchWeight = matched.reduce((total, term) => total + termWeight(term), 0);
@@ -95,7 +133,7 @@ export function filterLowSignalResults(results) {
 }
 function isLowSignalCapture(result) {
     const text = result.record.text.trimStart();
-    if (/^(?:#\s*(?:files mentioned by the user|response annotations|diff comments):|#\s*overview\s+generate\s+0\s+to\s+3\s+hyperpersonalized\s+suggestions\b|<(?:recommended_plugins|subagent_notification|codex_internal_context|pathmark-memory|environment_context|skill)\b)/i.test(text)) {
+    if (/^(?:#\s*(?:files mentioned by the user|response annotations|diff comments):|#\s*overview\s+generate\s+0\s+to\s+3\s+hyperpersonalized\s+suggestions\b|<(?:recommended_plugins|subagent_notification|codex_internal_context|pathmark-memory|environment_context|realtime_delegation|skill)\b)/i.test(text)) {
         return true;
     }
     if (!result.record.tags.includes("role-assistant"))
@@ -126,7 +164,7 @@ function nearDuplicate(left, right, leftText, rightText) {
     }
     return commonPrefix >= 400 && commonPrefix / shortestLength >= 0.5;
 }
-function informativeTerms(text) {
+export function informativeSearchTerms(text) {
     return new Set(tokenizeSearchText(text).filter((term) => !GENERIC_TERMS.has(term) &&
         !LOW_INFORMATION_TERMS.has(term) &&
         !ENGLISH_STOP_WORDS.has(term) &&

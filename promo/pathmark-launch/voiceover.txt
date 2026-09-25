@@ -1,0 +1,9 @@
+Every time you switch coding agents, your context disappears. The decisions. The rules. The why behind the code.
+
+Pathmark gives Codex, Claude Code, opencode, Gemini CLI, Cursor, and any MCP client one local memory layer.
+
+It recalls what matters, shows exactly which memories it used, and keeps everything in a plain JSONL file on your machine.
+
+No account. No API key. No vendor backend.
+
+Install Pathmark. Switch agents. Keep the context.

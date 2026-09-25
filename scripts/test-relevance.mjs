@@ -51,6 +51,18 @@ const records = [
     ["role-user"],
   ],
   ["vague-naming-noise", "We need a totally new name and should collect good naming ideas."],
+  [
+    "russian-scope-decision",
+    "Мы решили изолировать автоматическую память Pathmark по workspace и project: чужую сырую историю не подмешивать.",
+  ],
+  [
+    "russian-call-center-noise",
+    "Убедись, что система работает без ошибок; можешь посмотреть другие варианты, это очень важно и было бы круто.",
+  ],
+  [
+    "russian-product-noise",
+    "Мы можем посмотреть другие передовые решения и позаимствовать то, чего нам не хватает.",
+  ],
 ];
 
 await store.addRecords(
@@ -83,6 +95,11 @@ const cases = [
     expected: "activity-audit",
     rejected: ["activity-skill-noise", "activity-suggestion-noise"],
   },
+  {
+    query: "Как мы решили изолировать автоматическую память Pathmark по workspace и project?",
+    expected: "russian-scope-decision",
+    rejected: ["russian-call-center-noise", "russian-product-noise"],
+  },
 ];
 
 for (const testCase of cases) {
@@ -101,5 +118,17 @@ for (const testCase of cases) {
 const vagueRaw = await store.search({ query: "So, are we totally good?", tags: ["acceptance"], limit: 50 });
 assert.equal(vagueRaw.some((result) => result.record.id === "vague-naming-noise"), true);
 assert.deepEqual(selectRelevantResults(vagueRaw, "So, are we totally good?", 5), []);
+
+const russianAbstentionQuery =
+  "Убедись, что наша система безупречно работает без ошибок, extracted memories, которые нужны, и не injected неправильные memories. Это очень важно. Также можешь посмотреть другие memory systems, допустим, у Hermes Agent, у Honcho Memory и у других передовых Memory Solutions. Может, мы можем что-то у них позаимствовать, то, чего нам не хватает. Было бы круто.";
+const russianAbstentionRaw = await store.search({ query: russianAbstentionQuery, tags: ["acceptance"], limit: 50 });
+const russianAbstentionSelected = selectRelevantResults(russianAbstentionRaw, russianAbstentionQuery, 5);
+assert.equal(
+  russianAbstentionSelected.some((result) =>
+    ["russian-call-center-noise", "russian-product-noise", "vague-naming-noise"].includes(result.record.id),
+  ),
+  false,
+  "generic Russian overlap must not be treated as relevant memory",
+);
 
 console.log("Retrieval acceptance tests passed");

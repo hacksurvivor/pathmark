@@ -1,4 +1,9 @@
 import { redactSecrets } from "./redact.js";
+// Per-record text budget for summary blocks. `limit` bounds result COUNT, not
+// size, so without this a few large records produce 100k+ character payloads
+// that overflow harness tool-output caps. usedMemories() carries the shorter
+// preview; callers needing full text fetch by id.
+const SUMMARY_TEXT_LIMIT = 600;
 export function jsonText(value) {
     return {
         content: [
@@ -36,17 +41,17 @@ export function publicConfig(config) {
         exportEncryptionKey: config.exportEncryptionKey ? "set" : "missing",
     };
 }
-export function summarizeRecords(records) {
+export function summarizeRecords(records, textLimit = SUMMARY_TEXT_LIMIT) {
     if (records.length === 0)
         return "No records found.";
     return records
         .map((record) => {
         const tagText = record.tags.length > 0 ? ` tags=${record.tags.join(",")}` : "";
-        return `- ${record.kind} ${record.id} (${record.createdAt}${tagText})\n  ${record.text}`;
+        return `- ${record.kind} ${record.id} (${record.createdAt}${tagText})\n  ${truncate(record.text, textLimit)}`;
     })
         .join("\n");
 }
-export function summarizeSearch(results) {
+export function summarizeSearch(results, textLimit = SUMMARY_TEXT_LIMIT) {
     if (results.length === 0)
         return "No matching memory found.";
     return results
@@ -54,7 +59,7 @@ export function summarizeSearch(results) {
         const record = result.record;
         const matches = result.matchedTerms.length > 0 ? ` matches=${result.matchedTerms.join(",")}` : "";
         const tagText = record.tags.length > 0 ? ` tags=${record.tags.join(",")}` : "";
-        return `- ${record.kind} ${record.id} score=${result.score}${matches} (${record.createdAt}${tagText})\n  ${record.text}`;
+        return `- ${record.kind} ${record.id} score=${result.score}${matches} (${record.createdAt}${tagText})\n  ${truncate(record.text, textLimit)}`;
     })
         .join("\n");
 }

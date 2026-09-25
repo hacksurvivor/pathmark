@@ -1,5 +1,5 @@
 import { loadConfig } from "../config.js";
-import { PathmarkStore } from "../store.js";
+import { PathmarkStore, closeOpenStores } from "../store.js";
 import { observe, prompt, recall, writeback, type CodexHookInput } from "./capture.js";
 import { installPathmarkMcp, pathmarkMcpStatus, removePathmarkMcp } from "./config-file.js";
 import { hookStatus, installPathmarkHooks, uninstallPathmarkHooks } from "./hooks.js";
@@ -40,33 +40,39 @@ export async function runCodexCommand(args: string[]): Promise<void> {
 }
 
 async function runHook(command: HookCommand): Promise<void> {
-  const input = await readHookInput();
-  if (!input) return;
+  try {
+    const input = await readHookInput();
+    if (!input) return;
 
-  const output =
-    command === "recall"
-      ? await recall(input)
-      : command === "prompt"
-        ? await prompt(input)
-        : command === "observe"
-          ? await observe(input)
-          : await writeback(input);
+    const output =
+      command === "recall"
+        ? await recall(input)
+        : command === "prompt"
+          ? await prompt(input)
+          : command === "observe"
+            ? await observe(input)
+            : await writeback(input);
 
-  if (!output) return;
+    if (!output) return;
 
-  if (command === "recall" || command === "prompt") {
-    process.stdout.write(
-      `${JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: command === "recall" ? "SessionStart" : "UserPromptSubmit",
-          additionalContext: output,
-        },
-      })}\n`,
-    );
-    return;
+    if (command === "recall" || command === "prompt") {
+      process.stdout.write(
+        `${JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: command === "recall" ? "SessionStart" : "UserPromptSubmit",
+            additionalContext: output,
+          },
+        })}\n`,
+      );
+      return;
+    }
+
+    process.stdout.write(`${output}\n`);
+  } finally {
+    // Hook processes are one-shot. Releasing the index connection here lets the
+    // WAL checkpoint and lets the process exit instead of accumulating.
+    await closeOpenStores();
   }
-
-  process.stdout.write(`${output}\n`);
 }
 
 async function printStatus(): Promise<void> {

@@ -239,10 +239,13 @@ The Codex adapter is proactive by default:
 - tool-output hashes are captured for correlation, while output text remains private by default and requires `PATHMARK_CODEX_CAPTURE_TOOL_OUTPUTS=on`;
 - activity records expire after 30 days and are physically capped at 5,000 records by default;
 - session start/resume injects relevant workspace memory;
-- each non-trivial user prompt searches the local store and injects matching memory as Codex `additionalContext`;
+- each non-trivial user prompt searches exact workspace and project scopes first, then injects matching memory as Codex `additionalContext`;
+- automatic cross-project recall admits raw history only when the prompt explicitly names that project; otherwise the global fallback is limited to unscoped conclusions and memories deliberately tagged `global-memory`, `user-profile`, or `global-preference`;
+- broad cross-project history remains available through explicit `search_memory` / `recall_memory` calls without silently entering every prompt;
 - when matching memory is found, Codex receives an instruction to call `recall_memory` with the exact pre-capture result IDs and workspace tag, so the UI cannot mistake the newly saved prompt for previously used memory;
 - prompt context applies relevance and near-duplicate filtering before injection, and automatic visible recall omits the redundant full `records` copy;
-- legacy transport envelopes and assistant progress updates are excluded from session-start and proactive relevance results, while remaining available to explicit raw search;
+- legacy transport envelopes and assistant progress updates are excluded from session-start and proactive relevance results, while realtime delegation envelopes retain only their current `<input>` payload;
+- records containing Pathmark boundary escapes, instruction-override patterns, or invisible Unicode controls are tagged `memory-quarantined` and excluded from automatic recall; injected previews are escaped and explicitly treated as untrusted historical data;
 - no matching memory means no extra context is injected.
 
 Set `PATHMARK_CODEX_PROACTIVE_RECALL=off` if you want Codex hooks to capture memory but stop prompt-time recall.

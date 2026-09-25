@@ -1,0 +1,7 @@
+.venv/
+.hyperframes/
+.waveform-cache/
+renders/*.tmp
+renders/frames/
+renders/*.png
+renders/*-draft.mp4
