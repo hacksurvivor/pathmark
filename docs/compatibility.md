@@ -160,6 +160,8 @@ claude mcp add --scope user pathmark -- pathmark
 
 Pathmark sends MCP server instructions, so Claude Code knows when to call `recall_memory`, `remember`, and `create_conclusion` even while tool search keeps Pathmark's tool schemas deferred. Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, ...), so recall and search are marked read-only while `purge_memory`, `compact_memory`, and `delete_memory` are marked destructive.
 
+Permissions: `pathmark setup claude-code --apply-permissions` adds allow rules for the ten tools that only read the local store (`get_config`, `search_memory`, `get_context`, `recall_memory`, `session_trace`, `list_conclusions`, `list_pending_conclusions`, `get_memory_snapshot`, `audit_memory`, `doctor_memory`) to `~/.claude/settings.json` (honoring `CLAUDE_CONFIG_DIR`). Without them, Claude Code prompts for every recall, and in auto mode each call waits on the safety classifier, which can fail transiently. The command backs up the file first, adds only missing rules, keeps every other key, and refuses to touch a file it cannot parse. The same list is in the `permissions.allow` block of `pathmark setup claude-code --json` if you prefer to merge it yourself. Tools that write, delete, or may call an external synthesis provider are never included.
+
 Hooks: `pathmark setup claude-code --json` prints a `hooks` block for `~/.claude/settings.json`:
 
 | Claude Code event | Pathmark command | Effect |

@@ -1,4 +1,5 @@
 import { loadConfig } from "./config.js";
+import { claudeCodeAllowRules } from "./tool-policy.js";
 
 type SetupTarget =
   | "codex"
@@ -80,6 +81,22 @@ export async function runSetupCommand(args: string[]): Promise<void> {
     return;
   }
 
+  if (args.includes("--apply-permissions")) {
+    if (target !== "claude-code") {
+      console.error("--apply-permissions is only supported for claude-code");
+      process.exitCode = 2;
+      return;
+    }
+    const { applyClaudeCodePermissions } = await import("./claude-settings.js");
+    try {
+      console.log(JSON.stringify(await applyClaudeCodePermissions(), null, 2));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   const guide = setupGuide(target);
   if (json) {
     console.log(JSON.stringify(guide, null, 2));
@@ -117,10 +134,11 @@ function setupGuide(target: SetupTarget): SetupGuide {
       title: "Claude Code",
       summary: "Register Pathmark as a user-scoped MCP server in Claude Code and optionally enable auto-capture hooks.",
       commands: [`claude mcp add --scope user pathmark -e PATHMARK_STORE_DIR=${shellQuote(config.storeDir)} -- pathmark`],
-      config: { hooks: claudeCodeHooks() },
+      config: { permissions: { allow: claudeCodeAllowRules() }, hooks: claudeCodeHooks() },
       env,
       notes: [
         "--scope user makes Pathmark available in every project; the default local scope only covers the current directory.",
+        "Run `pathmark setup claude-code --apply-permissions` (or merge permissions.allow into ~/.claude/settings.json yourself) so Pathmark's local read-only tools (recall, search, diagnostics) run without a prompt; in auto mode they otherwise wait on the safety classifier. Tools that write or delete still ask.",
         "Merge the hooks block into ~/.claude/settings.json to inject approved intent at session start (including after compaction) and capture prompts, compact tool activity, and final replies.",
         "Keep synthesis in client mode so Claude Code's own model answers from returned memory context.",
         "Use the same PATHMARK_STORE_DIR as Codex to share memory across harnesses.",
