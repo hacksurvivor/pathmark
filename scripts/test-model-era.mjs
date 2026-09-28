@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -15,6 +15,7 @@ try {
   await testClaudeCodeHooks();
   await testClaudeSynthesisPreset();
   await testClaudeCodeNativeImport();
+  await testClaudeCodePermissions();
   console.log("Model-era capability tests passed");
 } finally {
   await rm(root, { recursive: true, force: true });
@@ -58,6 +59,14 @@ async function testServerInstructionsAndAnnotations() {
     for (const name of ["ask_memory", "chat", "consolidate_memory"]) {
       assert.equal(tools.find((tool) => tool.name === name).annotations.openWorldHint, true, `${name} uses external synthesis`);
     }
+    // The allow list shipped to Claude Code must be exactly the local read-only tools, so a new or
+    // re-annotated tool can never slip past the host's permission prompt unnoticed.
+    const { LOCAL_READ_ONLY_TOOLS } = await import("../dist/tool-policy.js");
+    const localReadOnly = tools
+      .filter((tool) => tool.annotations.readOnlyHint === true && tool.annotations.openWorldHint === false)
+      .map((tool) => tool.name)
+      .sort();
+    assert.deepEqual(localReadOnly, [...LOCAL_READ_ONLY_TOOLS].sort());
   });
 }
 
@@ -275,4 +284,60 @@ async function storeRecords() {
 
 async function storeTexts() {
   return (await storeRecords()).map((record) => record.text);
+}
+
+async function testClaudeCodePermissions() {
+  const { claudeCodeAllowRules } = await import("../dist/tool-policy.js");
+  const rules = claudeCodeAllowRules();
+  const configDir = path.join(root, "claude-config");
+  const settingsFile = path.join(configDir, "settings.json");
+  const apply = () =>
+    spawnSync(process.execPath, ["dist/index.js", "setup", "claude-code", "--apply-permissions"], {
+      env: { ...baseEnv, CLAUDE_CONFIG_DIR: configDir },
+      encoding: "utf8",
+    });
+
+  const guide = JSON.parse(
+    spawnSync(process.execPath, ["dist/index.js", "setup", "claude-code", "--json"], { env: baseEnv, encoding: "utf8" }).stdout,
+  );
+  assert.deepEqual(guide.config.permissions.allow, rules);
+
+  const created = apply();
+  assert.equal(created.status, 0, created.stderr);
+  assert.deepEqual(JSON.parse(created.stdout).added, rules);
+  assert.equal(JSON.parse(created.stdout).backupFile, undefined, "no backup when there was no file");
+  assert.deepEqual(JSON.parse(await readFile(settingsFile, "utf8")), { permissions: { allow: rules } });
+
+  const existing = {
+    model: "opus",
+    hooks: { Stop: [] },
+    permissions: { defaultMode: "auto", allow: ["Bash(git status)", rules[3]], deny: ["Bash(rm -rf:*)"] },
+  };
+  await writeFile(settingsFile, `${JSON.stringify(existing, null, 4)}\n`);
+  const merged = apply();
+  assert.equal(merged.status, 0, merged.stderr);
+  const result = JSON.parse(merged.stdout);
+  assert.deepEqual(result.alreadyPresent, [rules[3]]);
+  assert.equal(result.added.length, rules.length - 1);
+  const after = JSON.parse(await readFile(settingsFile, "utf8"));
+  assert.equal(after.model, "opus");
+  assert.deepEqual(after.hooks, { Stop: [] });
+  assert.equal(after.permissions.defaultMode, "auto");
+  assert.deepEqual(after.permissions.deny, ["Bash(rm -rf:*)"]);
+  assert.deepEqual(after.permissions.allow.slice(0, 2), ["Bash(git status)", rules[3]], "existing rules keep their order");
+  assert.equal(new Set(after.permissions.allow).size, after.permissions.allow.length, "no duplicates");
+  assert.match(await readFile(settingsFile, "utf8"), /^ {4}"model"/m, "keeps 4-space indentation");
+  assert.deepEqual(JSON.parse(await readFile(result.backupFile, "utf8")), existing, "backup holds the original");
+
+  const again = apply();
+  assert.equal(again.status, 0, again.stderr);
+  assert.deepEqual(JSON.parse(again.stdout).added, [], "second run is a no-op");
+
+  await writeFile(settingsFile, "{ not json");
+  const before = await readdir(configDir);
+  const invalid = apply();
+  assert.notEqual(invalid.status, 0);
+  assert.match(invalid.stderr, /not valid JSON/);
+  assert.equal(await readFile(settingsFile, "utf8"), "{ not json", "invalid settings are never rewritten");
+  assert.deepEqual(await readdir(configDir), before, "no backup or temp files left behind");
 }

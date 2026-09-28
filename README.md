@@ -9,16 +9,15 @@ Carry intent across agents without turning stale code facts into hidden memory.
   <a href="https://scorecard.dev/viewer/?uri=github.com/hacksurvivor/pathmark"><img src="https://api.scorecard.dev/projects/github.com/hacksurvivor/pathmark/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
-## What's New — v0.1.16
+## What's New — v0.1.17
 
-Pathmark v0.1.16 catches Claude Code up with Codex and makes Pathmark legible to current agent hosts:
+Pathmark v0.1.17 stops Claude Code from gating every memory lookup:
 
-- `pathmark setup claude-code` now prints a user-scoped `claude mcp add` command and SessionStart/UserPromptSubmit/PostToolUse/Stop hooks, so Claude Code gets the same automatic capture and session-start recall as Codex and Gemini CLI;
-- `pathmark import-native claude-code` imports Claude Code's built-in auto-memory into the shared store, so other agents can recall it;
-- every MCP tool declares `readOnlyHint`/`destructiveHint` annotations, and the server sends instructions that reach the model even when the host defers tool schemas behind tool search;
-- `PATHMARK_SYNTHESIS_PROVIDER=claude` lets `ask_memory` synthesize through the Claude CLI's own login, fully isolated.
+- `pathmark setup claude-code --apply-permissions` adds allow rules for Pathmark's ten local read-only tools, so recall and search run without a permission prompt, and in auto mode without a safety-classifier round-trip that can fail transiently;
+- it backs up `~/.claude/settings.json`, adds only missing rules, keeps every other setting, and never rewrites a file it cannot parse;
+- the allow list is tested against the tools' own `readOnlyHint`/`openWorldHint` annotations, so anything that writes, deletes, or may call an external model always keeps its prompt.
 
-See the [v0.1.16 release notes](docs/releases/v0.1.16.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
+See the [v0.1.17 release notes](docs/releases/v0.1.17.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/hacksurvivor/pathmark/main/assets/pathmark-hero.png" alt="Pathmark local intent and provenance shared by Codex, Claude Code, opencode, and Gemini CLI" width="100%">
@@ -163,7 +162,10 @@ When you want the visible "what memory did you use?" entry in Codex, Claude Code
 
 ```bash
 claude mcp add --scope user pathmark -- pathmark
+pathmark setup claude-code --apply-permissions
 ```
+
+The second command lets Pathmark's local read-only tools (recall, search, diagnostics) run without a permission prompt, including in auto mode, where they would otherwise wait on the safety classifier. It backs up `~/.claude/settings.json`, adds only the missing allow rules, and leaves everything else untouched. Tools that write or delete memory still ask.
 
 `--scope user` makes Pathmark available in every project; Claude Code's default scope only covers the current directory. For automatic capture and session-start recall (including after context compaction), merge the hooks block from `pathmark setup claude-code` into `~/.claude/settings.json`.
 
