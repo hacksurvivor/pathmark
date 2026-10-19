@@ -6,8 +6,7 @@ abstract: "Local-first intent, evidence, and provenance for Codex, Claude Code, 
 authors:
   - family-names: "Moloman"
     given-names: "Sergey"
-    affiliation: "RFLX AI"
-    website: "https://rflxai.com/founder/sergey-moloman"
+    website: "https://moloman.dev"
 repository-code: "https://github.com/hacksurvivor/pathmark"
 url: "https://www.npmjs.com/package/pathmark"
 license: "MIT"
