@@ -514,14 +514,10 @@ Pathmark gives your agents a shared working memory that stays on your machine.
 
 ## Author and citation
 
-Pathmark is created and maintained by [Sergey Moloman](https://rflxai.com/founder/sergey-moloman), a B2B AI integration specialist and private AI contractor, and founder of [RFLX AI](https://rflxai.com/).
+Pathmark is created and maintained by [Sergey Moloman](https://moloman.dev), an AI product engineer.
 
 Machine-readable authorship and citation metadata are available in [`CITATION.cff`](CITATION.cff) and [`codemeta.json`](codemeta.json).
 
 ## License
 
 MIT
-
-## Author
-
-Made by [Sergey Moloman](https://moloman.dev), AI product engineer.
