@@ -521,3 +521,7 @@ Machine-readable authorship and citation metadata are available in [`CITATION.cf
 ## License
 
 MIT
+
+## Author
+
+Made by [Sergey Moloman](https://moloman.dev), AI product engineer.
