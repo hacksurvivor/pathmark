@@ -16,6 +16,7 @@ const STATE_FILE = "dream-state.json";
 const DIGEST_FILE = "dream-digest.md";
 const AUTO_APPROVE_CONFIDENCE = 0.9;
 const MIN_CONFIDENCE = 0.8;
+const AUTO_NOTE = "Auto-approved: the user's own words state it (checked separately).";
 export async function dreamMemory(store, config, options = {}) {
     const now = options.now ?? new Date();
     const apply = options.apply === true;
@@ -43,24 +44,34 @@ export async function dreamMemory(store, config, options = {}) {
         const createdAt = Date.parse(record.createdAt);
         return Number.isFinite(createdAt) && createdAt >= cutoff;
     });
+    // A scope is a project tag plus its namespace, if any: namespaces never mix.
     const byProject = new Map();
     for (const record of evidence) {
         const project = record.tags.find((tag) => tag.startsWith("project:"));
         if (!project || (wanted.size > 0 && !wanted.has(project)))
             continue;
-        byProject.set(project, [...(byProject.get(project) ?? []), record]);
+        const namespace = record.tags.find((tag) => tag.startsWith("namespace:"));
+        const key = namespace ? `${project} ${namespace}` : project;
+        let scope = byProject.get(key);
+        if (!scope) {
+            scope = { key, project, namespace, records: [] };
+            byProject.set(key, scope);
+        }
+        scope.records.push(record);
     }
-    const queue = [...byProject.entries()]
-        .filter(([, records]) => records.length >= minEvidence)
-        .sort((left, right) => left[1].length - right[1].length)
+    const queue = [...byProject.values()]
+        .filter((scope) => scope.records.length >= minEvidence)
+        .sort((left, right) => left.records.length - right.records.length)
         .slice(0, maxProjects);
     const conclusions = await store.all({ kind: "conclusion" });
     const results = [];
-    for (const [project, records] of queue) {
-        const result = { project, evidenceReviewed: 0, evidenceLeft: 0, batches: 0, changes: [], errors: [] };
-        const ordered = [...records].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+    for (const scope of queue) {
+        const { project, namespace } = scope;
+        const result = { project: scope.key, evidenceReviewed: 0, evidenceLeft: 0, batches: 0, dropped: 0, changes: [], errors: [] };
+        const ordered = [...scope.records].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
         const existing = new Map(conclusions
             .filter((record) => !record.deletedAt && record.tags.includes(project))
+            .filter((record) => (namespace ? record.tags.includes(namespace) : !record.tags.some((tag) => tag.startsWith("namespace:"))))
             .filter((record) => conclusionApprovalStatus(record) !== "rejected")
             .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
             .slice(0, EXISTING_LIMIT)
@@ -85,11 +96,22 @@ export async function dreamMemory(store, config, options = {}) {
                 continue;
             }
             const evidenceById = new Map(batch.map((record) => [record.id, record]));
-            for (const candidate of parseCandidates(answer, evidenceById, existing, maxProposals)) {
-                const ownerBacked = candidate.evidenceIds.some((id) => evidenceById.get(id)?.tags.includes("role-user"));
-                const approve = autoApprove && ownerBacked && candidate.confidence >= AUTO_APPROVE_CONFIDENCE;
+            const parsed = parseCandidates(answer, evidenceById, existing, maxProposals);
+            if (!parsed.valid) {
+                // Not a usable reply (empty, cut off, wrong shape): the batch stays unreviewed for the next run.
+                result.errors.push("synthesis reply was not dream JSON");
+                continue;
+            }
+            result.dropped += parsed.dropped;
+            for (const candidate of parsed.candidates) {
+                const ownerWords = candidate.evidenceIds.map((id) => evidenceById.get(id)).filter((record) => Boolean(record && isOwnerWords(record)));
+                const ownerBacked = ownerWords.length > 0;
+                const approve = autoApprove &&
+                    ownerBacked &&
+                    candidate.confidence >= AUTO_APPROVE_CONFIDENCE &&
+                    (await ownerWordsSupport(config, candidate.text, ownerWords));
                 const change = apply
-                    ? await applyCandidate(store, project, candidate, approve, ownerBacked, existing, now)
+                    ? await applyCandidate(store, { project, namespace }, candidate, approve, ownerBacked, existing, now)
                     : previewChange(candidate, approve, ownerBacked, existing);
                 result.changes.push(change);
             }
@@ -102,6 +124,7 @@ export async function dreamMemory(store, config, options = {}) {
         results.push(result);
     }
     let maintenance;
+    const failed = results.some((result) => result.errors.length > 0);
     if (apply) {
         const known = new Set((await store.all({ kind: "memory", includeDeleted: true })).map((record) => record.id));
         for (const id of Object.keys(state.reviewed))
@@ -109,7 +132,11 @@ export async function dreamMemory(store, config, options = {}) {
                 delete state.reviewed[id];
         state.lastRunAt = now.toISOString();
         await writeState(statePath, state);
-        if (options.compact !== false && (options.retentionDays ?? config.retentionDays) > 0) {
+        if (failed) {
+            // Failed batches stay unreviewed; retention waits for a clean run so it can't expire evidence still to be read.
+            maintenance = { skipped: "a batch failed; retention runs after the next clean dream" };
+        }
+        else if (options.compact !== false && (options.retentionDays ?? config.retentionDays) > 0) {
             const compacted = await store.compact({
                 dryRun: false,
                 retentionDays: options.retentionDays ?? config.retentionDays,
@@ -137,55 +164,65 @@ export async function dreamMemory(store, config, options = {}) {
         digest,
     };
 }
-async function applyCandidate(store, project, candidate, approve, ownerBacked, existing, now) {
+async function applyCandidate(store, scope, candidate, approve, ownerBacked, existing, now) {
     const at = now.toISOString();
-    const tags = normalizeTags([project, ...candidate.tags, "derived-conclusion", "dream"]);
+    const tags = normalizeTags([scope.project, ...(scope.namespace ? [scope.namespace] : []), ...candidate.tags, "derived-conclusion", "dream"]);
     const source = "pathmark:dream";
     const approval = approve
-        ? { status: "approved", proposedAt: at, decidedAt: at, decidedBy: "pathmark dream", note: "Auto-approved: grounded in the owner's own words." }
+        ? { status: "approved", proposedAt: at, decidedAt: at, decidedBy: "pathmark dream", note: AUTO_NOTE }
         : { status: "pending", proposedAt: at };
     const draft = { text: candidate.text, tags, source, evidenceIds: candidate.evidenceIds, createdAt: at };
-    const replaced = candidate.supersedes ? existing.get(candidate.supersedes) : undefined;
-    if (replaced) {
-        const replacedStatus = conclusionApprovalStatus(replaced);
+    const base = { text: candidate.text, ownerBacked, confidence: candidate.confidence };
+    // Look the replaced conclusion up again: its status may have changed (approved by a person, or by an
+    // earlier batch of this run) since the cache was filled.
+    const replaced = candidate.supersedes ? await store.get(candidate.supersedes) : undefined;
+    if (replaced && replaced.kind === "conclusion") {
+        const replacedStatus = conclusionApprovalStatus(replaced) === "pending" ? "pending" : "approved";
         if (approve || replacedStatus === "pending") {
-            // Replace now: an approved fact backed by the owner, or an older proposal nobody decided on.
-            const record = await store.supersede(replaced.id, { kind: "conclusion", ...draft, approval });
+            // Replace now: an approved fact on the owner's word, or an older proposal nobody decided on.
+            // requireStatus is checked under the write lock, so an approval that lands meanwhile is never overridden.
+            const record = await store.supersede(replaced.id, { kind: "conclusion", ...draft, approval }, { requireStatus: replacedStatus });
             if (record) {
                 existing.delete(replaced.id);
                 existing.set(record.id, record);
+                return { ...base, action: approve ? "superseded" : "superseded_pending", id: record.id, supersedes: replaced.id, previousText: replaced.text };
             }
-            return {
-                action: approve ? "superseded" : "superseded_pending",
-                id: record?.id,
-                text: candidate.text,
-                supersedes: replaced.id,
-                previousText: replaced.text,
-                ownerBacked,
-                confidence: candidate.confidence,
-            };
         }
         // An approved fact is only replaced after review: the proposal carries `supersedes`, and approving it retires the old one.
         const { record, created } = await store.proposeConclusion({ ...draft, supersedes: replaced.id }, { dedupe: true });
-        return {
-            action: created ? "pending" : "duplicate",
-            id: record.id,
-            text: candidate.text,
-            supersedes: replaced.id,
-            previousText: replaced.text,
-            ownerBacked,
-            confidence: candidate.confidence,
-        };
+        return { ...base, action: created ? "pending" : "duplicate", id: record.id, supersedes: replaced.id, previousText: replaced.text };
     }
-    const { record, created } = await store.proposeConclusion(draft, { dedupe: true });
+    // One write: an auto-approved conclusion is never visible as pending, and never replaceable as pending.
+    const { record, created } = await store.addRecord({ kind: "conclusion", ...draft, approval }, { dedupe: true });
     if (!created)
-        return { action: "duplicate", id: record.id, text: candidate.text, ownerBacked, confidence: candidate.confidence };
+        return { ...base, action: "duplicate", id: record.id };
     existing.set(record.id, record);
-    if (approve) {
-        await store.decideConclusion(record.id, "approved", { decidedBy: "pathmark dream", note: "Auto-approved: grounded in the owner's own words." });
-        return { action: "approved", id: record.id, text: candidate.text, ownerBacked, confidence: candidate.confidence };
+    return { ...base, action: approve ? "approved" : "pending", id: record.id };
+}
+// The user's own words: a prompt captured by the hooks (role-user + codex-raw). MCP writes can't set codex-raw.
+function isOwnerWords(record) {
+    return record.tags.includes("role-user") && record.tags.includes("codex-raw");
+}
+// Auto-approval needs a second, narrow check: do the cited words of the user actually say this?
+// Any failure or doubt leaves the conclusion pending.
+async function ownerWordsSupport(config, claim, ownerWords) {
+    try {
+        const answer = await synthesizeWithCommand({
+            config,
+            question: [
+                "Verification task. The memory context holds messages the user typed.",
+                `Claim: ${JSON.stringify(claim)}`,
+                "Do these messages directly state, decide or clearly confirm the claim? Supported means the user said it, not that it is plausible.",
+                'Return JSON only: {"supported": true} or {"supported": false}.',
+            ].join("\n"),
+            context: ownerWords.map(asSearchResult),
+        });
+        const parsed = parseJsonObject(answer ?? "");
+        return isObject(parsed) && parsed.supported === true;
     }
-    return { action: "pending", id: record.id, text: candidate.text, ownerBacked, confidence: candidate.confidence };
+    catch {
+        return false;
+    }
 }
 function previewChange(candidate, approve, ownerBacked, existing) {
     const replaced = candidate.supersedes ? existing.get(candidate.supersedes) : undefined;
@@ -230,32 +267,35 @@ function dreamInstructions(project, existing, evidenceIds, maxProposals, now) {
 }
 function parseCandidates(answer, evidenceById, existing, limit) {
     const parsed = parseJsonObject(answer);
-    const values = isObject(parsed) && Array.isArray(parsed.conclusions) ? parsed.conclusions : [];
+    if (!isObject(parsed) || !Array.isArray(parsed.conclusions))
+        return { valid: false, candidates: [], dropped: 0 };
     const allowedTags = new Set(["decision", "preference", "constraint", "gotcha", "architecture", "account"]);
     const candidates = [];
-    for (const value of values) {
-        if (!isObject(value) || typeof value.text !== "string" || !value.text.trim())
+    let dropped = 0;
+    for (const value of parsed.conclusions) {
+        if (candidates.length >= limit)
+            break;
+        if (!isObject(value) || typeof value.text !== "string" || !value.text.trim()) {
+            dropped += 1;
             continue;
+        }
         const text = value.text.trim();
-        if (isUnsafeMemoryText(text))
-            continue;
         const confidence = typeof value.confidence === "number" ? value.confidence : 0;
-        if (!Number.isFinite(confidence) || confidence < MIN_CONFIDENCE || confidence > 1)
+        const cited = Array.isArray(value.evidenceIds) ? value.evidenceIds : [];
+        // Every citation must be a record from this batch; one unknown id drops the candidate.
+        const citationsValid = cited.length > 0 && cited.every((id) => typeof id === "string" && evidenceById.has(id));
+        if (isUnsafeMemoryText(text) || !Number.isFinite(confidence) || confidence < MIN_CONFIDENCE || confidence > 1 || !citationsValid) {
+            dropped += 1;
             continue;
-        const evidenceIds = Array.isArray(value.evidenceIds)
-            ? [...new Set(value.evidenceIds.filter((id) => typeof id === "string" && evidenceById.has(id)))]
-            : [];
-        if (evidenceIds.length === 0)
-            continue;
+        }
+        const evidenceIds = [...new Set(cited)];
         const tags = Array.isArray(value.tags)
             ? normalizeTags(value.tags.filter((tag) => typeof tag === "string")).filter((tag) => allowedTags.has(tag))
             : [];
         const supersedes = typeof value.supersedes === "string" && existing.has(value.supersedes) ? value.supersedes : undefined;
         candidates.push({ text, tags, evidenceIds, confidence, ...(supersedes ? { supersedes } : {}) });
-        if (candidates.length >= limit)
-            break;
     }
-    return candidates;
+    return { valid: true, candidates, dropped };
 }
 function renderDigest(results, info) {
     const lines = [`# Pathmark dream ${info.now.toISOString().slice(0, 16).replace("T", " ")} UTC${info.apply ? "" : " (preview)"}`, ""];

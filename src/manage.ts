@@ -9,8 +9,8 @@ import { loadConfig } from "./config.js";
 import { answerMemory } from "./memory-query.js";
 import { redactSecrets } from "./redact.js";
 import { decryptPortableExport } from "./portable.js";
-import { namespaceTag, PathmarkStore } from "./store.js";
-import type { PathmarkActivity, PathmarkApproval, PathmarkRecord, PathmarkRecordDraft, PathmarkRecordKind } from "./types.js";
+import { namespaceTag, parseMergeRecord, PathmarkStore } from "./store.js";
+import type { PathmarkActivity, PathmarkApproval, PathmarkRecordDraft, PathmarkRecordKind } from "./types.js";
 
 const USAGE = [
   "Usage:",
@@ -102,6 +102,10 @@ export async function runManagementCommand(command: string, args: string[]): Pro
       digestFile: option(options, "digest"),
     });
     console.log(JSON.stringify(result, null, 2));
+    // A scheduler must see a partly failed dream: failed batches stay unreviewed for the next run.
+    if (Array.isArray(result.projects) && result.projects.some((project) => (project as { errors?: unknown[] }).errors?.length)) {
+      process.exitCode = 1;
+    }
     return;
   }
   if (command === "audit") {
@@ -287,9 +291,10 @@ function defaultExportFile(): string {
 }
 
 // Full records for a merge: ids, timestamps, approval, supersession and tombstones are kept as exported.
-async function mergeableRecords(file: string, redact: boolean, encryptionKey: string | undefined): Promise<PathmarkRecord[]> {
+// The store validates each one with its canonical reader before writing anything.
+async function mergeableRecords(file: string, redact: boolean, encryptionKey: string | undefined): Promise<unknown[]> {
   const raw = await decryptPortableExport(await readFile(path.resolve(file), "utf8"), encryptionKey);
-  const records: PathmarkRecord[] = [];
+  const records: unknown[] = [];
   for (const [index, line] of raw.split("\n").entries()) {
     if (!line.trim()) continue;
     let value: unknown;
@@ -298,22 +303,10 @@ async function mergeableRecords(file: string, redact: boolean, encryptionKey: st
     } catch {
       throw new Error(`Invalid JSON on line ${index + 1}`);
     }
-    if (
-      !isObject(value) ||
-      typeof value.id !== "string" || !value.id.trim() ||
-      (value.kind !== "memory" && value.kind !== "conclusion") ||
-      typeof value.text !== "string" ||
-      !Array.isArray(value.tags) || !value.tags.every((tag) => typeof tag === "string") ||
-      typeof value.createdAt !== "string" || typeof value.updatedAt !== "string" ||
-      typeof value.source !== "string"
-    ) {
+    if (!parseMergeRecord(value)) {
       throw new Error(`Invalid Pathmark record for --merge on line ${index + 1} (export with --include-deleted from Pathmark)`);
     }
-    if (value.kind === "conclusion" && value.approval !== undefined && !importedApproval(value.approval)) {
-      throw new Error(`Invalid approval on line ${index + 1}`);
-    }
-    const record = value as unknown as PathmarkRecord;
-    records.push(redact ? { ...record, text: redactSecrets(record.text).text } : record);
+    records.push(redact && isObject(value) && typeof value.text === "string" ? { ...value, text: redactSecrets(value.text).text } : value);
   }
   return records;
 }

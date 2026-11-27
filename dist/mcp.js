@@ -61,7 +61,7 @@ export async function runMcpServer() {
         const record = await store.add({
             kind: "memory",
             text: safeWriteText(text, config.redactMcpWrites),
-            tags: scopedTags(tags, namespace ?? config.defaultNamespace),
+            tags: withoutCaptureTags(scopedTags(tags, namespace ?? config.defaultNamespace)),
             source,
             expiresAt,
         }, { dedupe: true });
@@ -326,7 +326,7 @@ export async function runMcpServer() {
             : scopedTags(tags ?? existing?.tags, selectedNamespace);
         const updated = await store.update(id, {
             ...(text === undefined ? {} : { text: safeWriteText(text, config.redactMcpWrites) }),
-            ...(scoped === undefined ? {} : { tags: scoped }),
+            ...(scoped === undefined ? {} : { tags: withoutCaptureTags(scoped) }),
             ...(source === undefined ? {} : { source }),
             ...(expiresAt === undefined ? {} : { expiresAt }),
         });
@@ -362,14 +362,17 @@ export async function runMcpServer() {
             const existingRecord = await store.get(id);
             if (!existingRecord)
                 return jsonText({ status: "not_found", proposal: null });
-            const { record, created } = await store.proposeConclusion({ ...replacementInput, tags: replacementTags ?? existingRecord.tags, supersedes: id }, { dedupe: true });
+            const { record, created } = await store.proposeConclusion({ ...replacementInput, tags: withoutCaptureTags(replacementTags ?? existingRecord.tags), supersedes: id }, { dedupe: true });
             return jsonText({
                 status: conclusionApprovalStatus(record) === "pending" ? "pending_approval" : "already_approved",
                 created,
                 proposal: record,
             });
         }
-        const replacement = await store.supersede(id, replacementInput);
+        const current = await store.get(id);
+        if (!current)
+            return jsonText({ status: "not_found", replacement: null });
+        const replacement = await store.supersede(id, { ...replacementInput, tags: withoutCaptureTags(replacementTags ?? current.tags) });
         return jsonText({ status: replacement ? "superseded" : "not_found", replacement: replacement ?? null });
     });
     server.registerTool("purge_memory", {
@@ -500,6 +503,12 @@ export async function runMcpServer() {
             (result.record.kind !== "memory" || !isInternalInstructionText(result.record.text)));
         return query.trim() ? selectRelevantResultsByIntent(candidates, query, selectedLimit) : candidates.slice(0, selectedLimit);
     }
+}
+// Tags only automatic capture may set. `pathmark dream` treats role-user + codex-raw as the user's own
+// words when deciding auto-approval, so MCP callers can't add the capture markers.
+const CAPTURE_TAGS = new Set(["codex-raw", "codex-session", "immediate-prompt"]);
+function withoutCaptureTags(tags) {
+    return tags.filter((tag) => !CAPTURE_TAGS.has(tag.trim().toLowerCase()));
 }
 function scopedTags(tags, namespace) {
     return [...new Set([...(tags ?? []), ...(namespace ? [namespaceTag(namespace)] : [])])];

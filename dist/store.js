@@ -494,7 +494,15 @@ export class PathmarkStore {
      * For an id both copies hold, the version with the later updatedAt wins: approvals, edits,
      * supersessions and deletes made on one machine reach the other.
      */
-    async mergeRecords(incoming) {
+    async mergeRecords(rawIncoming) {
+        // Validate and normalize every record with the canonical reader before the first write:
+        // approval tags are recomputed (a pending record never reaches recall untagged) and unsafe text is quarantined.
+        const incoming = rawIncoming.map((value, index) => {
+            const record = parseMergeRecord(value);
+            if (!record)
+                throw new Error(`Invalid Pathmark record at position ${index + 1}; nothing was merged`);
+            return record;
+        });
         await this.ensureReady();
         return this.withWriteLock(async () => {
             const db = await this.database();
@@ -509,7 +517,7 @@ export class PathmarkStore {
                 if (!current) {
                     additions.set(record.id, record);
                 }
-                else if (record.updatedAt > current.updatedAt) {
+                else if (isNewerVersion(record, current)) {
                     if (additions.has(record.id))
                         additions.set(record.id, record);
                     else
@@ -527,7 +535,7 @@ export class PathmarkStore {
             return { added: additions.size, updated: replacements.size, unchanged };
         });
     }
-    async supersede(id, input) {
+    async supersede(id, input, options = {}) {
         await this.ensureReady();
         return this.withWriteLock(async () => {
             const db = await this.database();
@@ -535,6 +543,9 @@ export class PathmarkStore {
             if (!row)
                 return undefined;
             const existing = rowToRecord(row);
+            // Checked under the write lock, so a status that changed since the caller looked (an approval) is honoured.
+            if (options.requireStatus && conclusionApprovalStatus(existing) !== options.requireStatus)
+                return undefined;
             const now = new Date().toISOString();
             const approval = input.kind === "conclusion" ? input.approval : undefined;
             const baseTags = memorySafetyTags(input.tags ?? existing.tags, input.text);
@@ -1005,13 +1016,12 @@ function compactRecords(records, options) {
     const tombstones = [];
     let candidates = records.filter((record) => {
         if (record.deletedAt) {
-            if (!options.dropDeleted)
-                return true;
-            if (tombstoneCutoff !== undefined && Date.parse(record.deletedAt) > tombstoneCutoff)
+            // Tombstones are kept per id (never deduped): each id needs its own delete for a merge to carry it.
+            if (!options.dropDeleted || (tombstoneCutoff !== undefined && Date.parse(record.deletedAt) > tombstoneCutoff))
                 tombstones.push(record);
             return false;
         }
-        if (record.expiresAt && Date.parse(record.expiresAt) <= now)
+        if (record.expiresAt && Date.parse(record.expiresAt) <= now && !cited.has(record.id))
             return false;
         // Retention applies to automatic capture only; memories saved on purpose and conclusions stay.
         if (retentionCutoff &&
@@ -1042,6 +1052,23 @@ function compactRecords(records, options) {
         });
     }
     return [...candidates, ...tombstones].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+export function parseMergeRecord(value) {
+    const record = parseRecordLine(JSON.stringify(value));
+    return record ? { ...record, tags: normalizeTags(memorySafetyTags(record.tags, record.text)) } : undefined;
+}
+// Later updatedAt wins. Equal instants (or unparseable ones) fall back to comparing the serialized
+// records, so every copy picks the same winner and repeated merges settle.
+function isNewerVersion(incoming, current) {
+    const a = Date.parse(incoming.updatedAt);
+    const b = Date.parse(current.updatedAt);
+    if (Number.isFinite(a) && Number.isFinite(b) && a !== b)
+        return a > b;
+    if (!Number.isFinite(a) && Number.isFinite(b))
+        return false;
+    if (Number.isFinite(a) && !Number.isFinite(b))
+        return true;
+    return JSON.stringify(incoming) > JSON.stringify(current);
 }
 function isAutomaticCapture(record) {
     return Boolean(record.activity) || record.tags.includes("codex-raw") || record.tags.includes("pathmark-activity");

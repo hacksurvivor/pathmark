@@ -97,12 +97,14 @@ export declare class PathmarkStore {
      * For an id both copies hold, the version with the later updatedAt wins: approvals, edits,
      * supersessions and deletes made on one machine reach the other.
      */
-    mergeRecords(incoming: PathmarkRecord[]): Promise<{
+    mergeRecords(rawIncoming: unknown[]): Promise<{
         added: number;
         updated: number;
         unchanged: number;
     }>;
-    supersede(id: string, input: PathmarkRecordDraft): Promise<PathmarkRecord | undefined>;
+    supersede(id: string, input: PathmarkRecordDraft, options?: {
+        requireStatus?: "pending" | "approved";
+    }): Promise<PathmarkRecord | undefined>;
     diagnose(): Promise<StoreDiagnosis>;
     purge(options: PurgeOptions): Promise<StoreMaintenanceResult>;
     compact(options?: CompactOptions): Promise<StoreMaintenanceResult>;
@@ -132,5 +134,6 @@ export declare class PathmarkStore {
     private createBackup;
     private withWriteLock;
 }
+export declare function parseMergeRecord(value: unknown): PathmarkRecord | undefined;
 export declare function namespaceTag(namespace: string): string;
 export {};
