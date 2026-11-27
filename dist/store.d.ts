@@ -59,6 +59,7 @@ export declare class PathmarkStore {
         tags?: string[];
         decidedBy?: string;
         note?: string;
+        inheritPlacement?: boolean;
     }): Promise<PathmarkRecord | undefined>;
     count(): Promise<number>;
     recordsWithTags(tags: string[], options?: {

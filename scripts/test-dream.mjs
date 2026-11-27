@@ -275,7 +275,16 @@ try {
   const approvedReplacement = await snapStore.decideConclusion("placed-proposal", "approved", { decidedBy: "owner" });
   assert.ok(approvedReplacement.tags.includes("wiki-private:client-k") && !approvedReplacement.tags.includes("wiki:public-page"), "a move made after the proposal is kept on approval");
   await snapStore.proposeConclusion({ id: "second-proposal", text: "Kappa uses port 3.", tags: ["project:kappa", "wiki:public-page"], source: "t", supersedes: "placed-original" });
-  await assert.rejects(snapStore.decideConclusion("second-proposal", "approved", { decidedBy: "owner" }), /no longer live/, "a proposal whose original is gone needs a fresh review");
+  await assert.rejects(snapStore.decideConclusion("second-proposal", "approved", { decidedBy: "owner" }), /no longer live.*replaced by placed-proposal/s, "a stranded proposal names the live fact");
+  const restaged = await snapStore.proposeConclusion({ text: "Kappa uses port 3.", tags: ["project:kappa"], source: "t", supersedes: "placed-proposal" }, { dedupe: true });
+  assert.ok(restaged.created && restaged.record.id !== "second-proposal", "re-staging against the live fact isn't swallowed by dedupe");
+  await snapStore.addRecords([
+    { id: "ns-original", kind: "conclusion", text: "Kappa cache is Redis.", tags: ["project:kappa", "wiki:public-page", "approval-approved"], source: "t", approval: { status: "approved", proposedAt: recent(9) } },
+  ]);
+  await snapStore.proposeConclusion({ id: "ns-proposal", text: "Kappa cache is Valkey.", tags: ["project:kappa", "wiki:public-page"], source: "t", supersedes: "ns-original" });
+  await snapStore.update("ns-original", { tags: ["project:kappa", "wiki-private:client-k", "approval-approved"] });
+  const nsOnly = await snapStore.decideConclusion("ns-proposal", "approved", { tags: ["project:kappa", "wiki:public-page", "namespace:alpha"], inheritPlacement: true });
+  assert.ok(nsOnly.tags.includes("wiki-private:client-k") && !nsOnly.tags.includes("wiki:public-page"), "a namespace-only approval keeps the original's placement");
   await snapStore.addRecords([
     { id: "explicit-original", kind: "conclusion", text: "Kappa uses region A.", tags: ["project:kappa", "wiki:public-page", "approval-approved"], source: "t", approval: { status: "approved", proposedAt: recent(9) } },
   ]);
@@ -288,6 +297,11 @@ try {
   const nsSession = await recall({ cwd: "/work/kappa-worktree", session_id: "ns-session" });
   delete process.env.PATHMARK_NAMESPACE;
   assert.ok(!nsSession.includes("beta-only"), "the hook snapshot stays in the configured namespace");
+  await snapStore.addRecords([
+    { id: "other-ns-fact", kind: "conclusion", text: "Lambda-only alpha fact.", tags: ["project:lambda", "namespace:alpha", "approval-approved"], source: "t", approval: { status: "approved", proposedAt: recent(1) } },
+  ]);
+  const nsProject = await buildMemorySnapshot(snapStore, { scopeTags: ["project:kappa", "namespace:alpha"] });
+  assert.ok(!/\[PROJECT\][^[]*Lambda-only/.test(nsProject.context), "a shared namespace doesn't make another project's fact a project fact");
   await snapStore.addRecords([
     ...Array.from({ length: 14 }, (_, i) => ({ id: `folder-old-${i}`, kind: "conclusion", text: `Old folder-tagged kappa fact number ${i} with some length to fill the budget quickly ${"x".repeat(200)}.`, tags: ["project:kappa-worktree", "approval-approved"], source: "t", createdAt: "2026-02-01T00:00:00.000Z", updatedAt: "2026-02-01T00:00:00.000Z", approval: { status: "approved", proposedAt: "2026-02-01T00:00:00.000Z" } })),
     { id: "canonical-new", kind: "conclusion", text: "Newest canonical kappa fact.", tags: ["project:kappa", "approval-approved"], source: "t", approval: { status: "approved", proposedAt: recent(1) } },

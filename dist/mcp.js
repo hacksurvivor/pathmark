@@ -267,6 +267,8 @@ export async function runMcpServer() {
         const approved = await store.decideConclusion(id, "approved", {
             ...(text === undefined ? {} : { text: safeWriteText(text, config.redactMcpWrites) }),
             ...(approvalTags === undefined ? {} : { tags: approvalTags }),
+            // Only tags the reviewer typed are a placement decision; a namespace alone keeps the original's placement.
+            inheritPlacement: tags === undefined,
             decidedBy,
             note,
         });

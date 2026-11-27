@@ -25,7 +25,9 @@ export async function buildMemorySnapshot(store, input = {}) {
         { name: "USER", records: candidates.filter((record) => record.tags.some((tag) => USER_TAGS.has(tag))) },
         {
             name: "PROJECT",
-            records: candidates.filter((record) => record.tags.some((tag) => scopeTags.has(tag) && SCOPE_PREFIXES.some((prefix) => tag.startsWith(prefix)))),
+            records: candidates.filter((record) => 
+            // A shared namespace only filters; it never makes another project's fact a project fact.
+            record.tags.some((tag) => scopeTags.has(tag) && !tag.startsWith("namespace:") && SCOPE_PREFIXES.some((prefix) => tag.startsWith(prefix)))),
         },
         {
             name: "AGENT",
