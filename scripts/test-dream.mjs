@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "../dist/config.js";
 import { dreamMemory } from "../dist/dream.js";
+import { buildMemorySnapshot } from "../dist/snapshot.js";
+import { projectTagFromCwd } from "../dist/codex/capture.js";
 import { PathmarkStore } from "../dist/store.js";
 
 const temp = await mkdtemp(path.join(os.tmpdir(), "pathmark-dream-test-"));
@@ -51,7 +53,7 @@ try {
   const dreamConfig = { ...config, synthesisProvider: "command", chatCommand: fake, retentionDays: 0 };
 
   await store.addRecords([
-    { id: "old-region", kind: "conclusion", text: "Alpha runs in the Paris region.", tags: ["project:alpha", "approval-approved"], source: "test", approval: { status: "approved", proposedAt: recent(9000), decidedAt: recent(9000) }, evidenceIds: ["legacy"] },
+    { id: "old-region", kind: "conclusion", text: "Alpha runs in the Paris region.", tags: ["project:alpha", "approval-approved", "wiki-private:client-a"], source: "test", approval: { status: "approved", proposedAt: recent(9000), decidedAt: recent(9000) }, evidenceIds: ["legacy"] },
     { id: "old-db", kind: "conclusion", text: "Alpha uses Postgres 15.", tags: ["project:alpha", "approval-approved"], source: "test", approval: { status: "approved", proposedAt: recent(9000), decidedAt: recent(9000) }, evidenceIds: ["legacy"] },
     { id: "owner-deploy", kind: "memory", text: "From now on alpha deploys go through staging first.", tags: ["project:alpha", "role-user", "codex-raw"], source: "test", createdAt: recent(50) },
     { id: "agent-claim", kind: "memory", text: "The alpha build took four minutes.", tags: ["project:alpha", "role-assistant", "codex-raw"], source: "test", createdAt: recent(49) },
@@ -114,6 +116,7 @@ try {
   const frankfurt = byText("Frankfurt");
   assert.equal(frankfurt.approval.status, "approved");
   assert.equal(frankfurt.supersedes, "old-region");
+  assert.ok(frankfurt.tags.includes("wiki-private:client-a"), "a replacement keeps the old fact's page tags");
   const oldRegion = (await store.all({ kind: "conclusion", includeDeleted: true })).find((record) => record.id === "old-region");
   assert.ok(oldRegion.deletedAt && oldRegion.supersededBy === frankfurt.id, "the contradicted fact is retired, history kept");
   const postgres = byText("Postgres 17");
@@ -234,6 +237,23 @@ try {
   assert.equal((await compactStore.all({ includeDeleted: true })).filter((record) => record.id.startsWith("twin-")).length, 2, "tombstones are never deduped");
   await compactStore.compact({ dryRun: false, retentionDays: 30, tombstoneDays: 0 });
   assert.ok(!(await compactStore.all({ includeDeleted: true })).some((record) => record.id === "recently-deleted"), "tombstoneDays 0 drops tombstones");
+
+  // --- snapshot: the current project's facts show up even in a store with hundreds of newer ones ---
+  process.env.PATHMARK_STORE_DIR = path.join(temp, "snapshot");
+  const snapStore = new PathmarkStore(loadConfig());
+  await snapStore.addRecords([
+    { id: "mine-1", kind: "conclusion", text: "Kappa deploys from main only.", tags: ["project:kappa", "approval-approved"], source: "t", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", approval: { status: "approved", proposedAt: "2026-01-01T00:00:00.000Z" } },
+    ...Array.from({ length: 600 }, (_, i) => ({ id: `other-${i}`, kind: "conclusion", text: `Unrelated fact ${i}.`, tags: ["project:other", "approval-approved"], source: "t", approval: { status: "approved", proposedAt: recent(1) } })),
+  ]);
+  const snapshot = await buildMemorySnapshot(snapStore, { scopeTags: ["project:kappa"] });
+  assert.match(snapshot.context, /Kappa deploys from main only/, "scoped facts are fetched by tag, not lost behind newer ones");
+  const empty = await buildMemorySnapshot(snapStore, { scopeTags: ["project:nobody"] });
+  assert.ok(!empty.context.includes("[truncated]") || empty.records.length > 0, "no empty [truncated] block");
+
+  // --- capture applies project aliases ---
+  await writeFile(path.join(temp, "snapshot", "project-aliases.json"), JSON.stringify({ "kappa-worktree": "kappa" }));
+  assert.equal(projectTagFromCwd("/work/kappa-worktree"), "project:kappa", "capture tags the canonical project");
+  assert.equal(projectTagFromCwd("/work/lambda"), "project:lambda");
 
   console.log("dream, merge and retention tests passed");
 } finally {

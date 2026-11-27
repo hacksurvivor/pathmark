@@ -9,6 +9,7 @@ import { loadConfig } from "../config.js";
 import { deterministicId } from "../ids.js";
 import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "../memory-safety.js";
 import { redactSecrets } from "../redact.js";
+import { canonicalProject } from "../aliases.js";
 import { informativeSearchTerms, selectRelevantResultsByIntent } from "../relevance.js";
 import { PathmarkStore } from "../store.js";
 import { buildMemorySnapshot } from "../snapshot.js";
@@ -684,7 +685,7 @@ export function projectTagFromCwd(cwd: string | undefined): string | undefined {
     .replace(/[^a-z0-9_.-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   if (!project || GENERIC_RECALL_TOKENS.has(project)) return undefined;
-  return `project:${project}`;
+  return `project:${canonicalProject(project)}`;
 }
 
 export function workspaceTagFromCwd(cwd: string | undefined): string | undefined {
