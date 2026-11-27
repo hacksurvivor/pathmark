@@ -17,6 +17,9 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
 const EVIDENCE_TEXT_LIMIT = 1_500;
 const EXISTING_LIMIT = 60;
 const STATE_FILE = "dream-state.json";
+// Capture tags a project by its folder name; this maps folder names to the project name conclusions use,
+// e.g. {"co-ode": "co-od", "huncho": "pathmark"}.
+const ALIAS_FILE = "project-aliases.json";
 const DIGEST_FILE = "dream-digest.md";
 const AUTO_APPROVE_CONFIDENCE = 0.9;
 const MIN_CONFIDENCE = 0.8;
@@ -105,7 +108,12 @@ export async function dreamMemory(
   const days = clamp(options.days ?? 30, 1, 3_650);
   const statePath = path.join(config.storeDir, STATE_FILE);
   const state = await readState(statePath);
-  const wanted = new Set((options.projects ?? []).map(projectTag));
+  const aliases = await readAliases(path.join(config.storeDir, ALIAS_FILE));
+  const canonical = (tag: string) => {
+    const name = tag.slice("project:".length);
+    return `project:${aliases[name] ?? name}`;
+  };
+  const wanted = new Set((options.projects ?? []).map(projectTag).map(canonical));
 
   if (config.synthesisProvider === "client") {
     return {
@@ -125,7 +133,8 @@ export async function dreamMemory(
   // A scope is a project tag plus its namespace, if any: namespaces never mix.
   const byProject = new Map<string, Scope>();
   for (const record of evidence) {
-    const project = record.tags.find((tag) => tag.startsWith("project:"));
+    const captured = record.tags.find((tag) => tag.startsWith("project:"));
+    const project = captured ? canonical(captured) : undefined;
     if (!project || (wanted.size > 0 && !wanted.has(project))) continue;
     const namespace = record.tags.find((tag) => tag.startsWith("namespace:"));
     const key = namespace ? `${project} ${namespace}` : project;
@@ -218,7 +227,11 @@ export async function dreamMemory(
         retentionDays: options.retentionDays ?? config.retentionDays,
         tombstoneDays: options.tombstoneDays ?? 30,
       });
-      maintenance = { removedRecords: compacted.removedRecords, activeRecords: compacted.activeRecords };
+      maintenance = {
+        removedRecords: compacted.removedRecords,
+        activeRecords: compacted.activeRecords,
+        ...(compacted.backupFile ? { backupFile: compacted.backupFile } : {}),
+      };
     }
   }
 
@@ -431,6 +444,20 @@ function renderDigest(
     if (result.evidenceLeft > 0) lines.push(`- ${result.evidenceLeft} evidence records left for the next dream`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+async function readAliases(file: string): Promise<Record<string, string>> {
+  try {
+    const parsed = JSON.parse(await readFile(file, "utf8")) as unknown;
+    if (!isObject(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim() !== "")
+        .map(([from, to]) => [from.trim().toLowerCase(), to.trim().toLowerCase()]),
+    );
+  } catch {
+    return {};
+  }
 }
 
 async function readState(file: string): Promise<DreamState> {

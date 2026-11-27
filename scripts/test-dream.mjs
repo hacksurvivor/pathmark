@@ -70,6 +70,12 @@ try {
 
   assert.equal((await dreamMemory(store, config, {})).status, "synthesis_provider_required");
 
+  // Folder-name aliases: evidence captured as project:alpha-2 (a worktree) joins project:alpha.
+  await writeFile(path.join(config.storeDir, "project-aliases.json"), JSON.stringify({ "alpha-2": "alpha" }));
+  await store.addRecords([
+    { id: "worktree-note", kind: "memory", text: "Note from a worktree of alpha.", tags: ["project:alpha-2", "role-assistant", "codex-raw"], source: "test", createdAt: recent(33) },
+  ]);
+
   const preview = await dreamMemory(store, dreamConfig, { autoApprove: true });
   assert.equal(preview.status, "preview");
   const conclusionsAfterPreview = await store.all({ kind: "conclusion" });
@@ -78,13 +84,14 @@ try {
   assert.deepEqual(previewAlpha.changes.map((change) => change.action).sort(), ["approved", "pending", "pending", "pending", "pending", "superseded"]);
   assert.equal(previewAlpha.dropped, 3, "unknown, mixed and low-confidence citations are dropped");
   assert.ok(preview.projects.some((project) => project.project === "project:alpha namespace:client-x"), "a namespace is its own scope");
+  assert.ok(!preview.projects.some((project) => project.project === "project:alpha-2"), "an aliased folder name joins its project");
   assert.ok(!preview.projects.some((project) => project.project === "project:gamma"), "projects under minEvidence wait");
   await assert.rejects(readFile(path.join(config.storeDir, "dream-state.json"), "utf8"), "a preview keeps no state");
 
   const applied = await dreamMemory(store, dreamConfig, { apply: true, autoApprove: true, projects: ["alpha", "beta"], batchSize: 6 });
   assert.equal(applied.status, "applied");
   const alpha = applied.projects.find((project) => project.project === "project:alpha");
-  assert.equal(alpha.evidenceReviewed, 10, "evidence older than the window is skipped");
+  assert.equal(alpha.evidenceReviewed, 11, "evidence older than the window is skipped; the aliased worktree note joins alpha");
   const live = (await store.all({ kind: "conclusion" })).filter((record) => !record.deletedAt);
   const byText = (needle) => live.find((record) => record.text.includes(needle));
   assert.equal(byText("staging branch").approval.status, "approved", "owner-backed and confident: auto-approved");
