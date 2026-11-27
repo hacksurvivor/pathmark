@@ -274,6 +274,26 @@ try {
   await snapStore.update("placed-original", { tags: ["project:kappa", "wiki-private:client-k", "approval-approved"] });
   const approvedReplacement = await snapStore.decideConclusion("placed-proposal", "approved", { decidedBy: "owner" });
   assert.ok(approvedReplacement.tags.includes("wiki-private:client-k") && !approvedReplacement.tags.includes("wiki:public-page"), "a move made after the proposal is kept on approval");
+  await snapStore.proposeConclusion({ id: "second-proposal", text: "Kappa uses port 3.", tags: ["project:kappa", "wiki:public-page"], source: "t", supersedes: "placed-original" });
+  await assert.rejects(snapStore.decideConclusion("second-proposal", "approved", { decidedBy: "owner" }), /no longer live/, "a proposal whose original is gone needs a fresh review");
+  await snapStore.addRecords([
+    { id: "explicit-original", kind: "conclusion", text: "Kappa uses region A.", tags: ["project:kappa", "wiki:public-page", "approval-approved"], source: "t", approval: { status: "approved", proposedAt: recent(9) } },
+  ]);
+  await snapStore.proposeConclusion({ id: "explicit-proposal", text: "Kappa uses region B.", tags: ["project:kappa"], source: "t", supersedes: "explicit-original" });
+  const explicit = await snapStore.decideConclusion("explicit-proposal", "approved", { decidedBy: "owner", tags: ["project:kappa", "wiki-private:client-k"] });
+  assert.ok(explicit.tags.includes("wiki-private:client-k") && !explicit.tags.includes("wiki:public-page"), "a reviewer's explicit placement wins");
+
+  // --- hooks honour the configured namespace; folder and canonical matches compete by recency ---
+  process.env.PATHMARK_NAMESPACE = "alpha";
+  const nsSession = await recall({ cwd: "/work/kappa-worktree", session_id: "ns-session" });
+  delete process.env.PATHMARK_NAMESPACE;
+  assert.ok(!nsSession.includes("beta-only"), "the hook snapshot stays in the configured namespace");
+  await snapStore.addRecords([
+    ...Array.from({ length: 14 }, (_, i) => ({ id: `folder-old-${i}`, kind: "conclusion", text: `Old folder-tagged kappa fact number ${i} with some length to fill the budget quickly ${"x".repeat(200)}.`, tags: ["project:kappa-worktree", "approval-approved"], source: "t", createdAt: "2026-02-01T00:00:00.000Z", updatedAt: "2026-02-01T00:00:00.000Z", approval: { status: "approved", proposedAt: "2026-02-01T00:00:00.000Z" } })),
+    { id: "canonical-new", kind: "conclusion", text: "Newest canonical kappa fact.", tags: ["project:kappa", "approval-approved"], source: "t", approval: { status: "approved", proposedAt: recent(1) } },
+  ]);
+  const crowd = await recall({ cwd: "/work/kappa-worktree", session_id: "crowd-session" });
+  assert.match(crowd, /Newest canonical kappa fact/, "older folder facts don't crowd out newer canonical ones");
 
   console.log("dream, merge and retention tests passed");
 } finally {

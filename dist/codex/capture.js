@@ -7,7 +7,7 @@ import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG }
 import { redactSecrets } from "../redact.js";
 import { canonicalProject } from "../aliases.js";
 import { informativeSearchTerms, selectRelevantResultsByIntent } from "../relevance.js";
-import { PathmarkStore } from "../store.js";
+import { PathmarkStore, namespaceTag } from "../store.js";
 import { buildMemorySnapshot } from "../snapshot.js";
 import { tokenizeSearchText } from "../tokenize.js";
 import { captureToolActivity, digest } from "./activity.js";
@@ -30,7 +30,13 @@ export async function recall(input) {
     try {
         const [snapshot, consolidation] = await Promise.all([
             config.codexMemorySnapshot
-                ? buildMemorySnapshot(store, { scopeTags: withCanonicalProject(primaryPromptRecallTags(input)), charLimit: config.snapshotCharLimit })
+                ? buildMemorySnapshot(store, {
+                    scopeTags: [
+                        ...withCanonicalProject(primaryPromptRecallTags(input)),
+                        ...(config.defaultNamespace ? [namespaceTag(config.defaultNamespace)] : []),
+                    ],
+                    charLimit: config.snapshotCharLimit,
+                })
                 : undefined,
             config.codexProactiveConsolidation
                 ? proactiveConsolidationBatch(store, input, config.consolidationMinEvidence).catch(() => undefined)

@@ -33,7 +33,11 @@ export async function buildMemorySnapshot(
         // A namespace in scope narrows every lookup: scoped facts never cross namespaces.
         .map((tag) => store.listConclusions({ status: "approved", tags: [tag, ...namespaces], limit: 200 })),
     )
-  ).flat();
+  )
+    .flat()
+    // Folder-name and canonical-project matches compete by recency, so older facts under one name can't crowd out
+    // newer ones under the other.
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const candidates = [...new Map([...scoped, ...newest].map((record) => [record.id, record])).values()].filter(isSnapshotSafe);
   const seen = new Set<string>();
   const sections: Array<{ name: "USER" | "PROJECT" | "AGENT"; records: PathmarkRecord[] }> = [

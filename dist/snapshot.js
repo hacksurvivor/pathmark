@@ -14,7 +14,11 @@ export async function buildMemorySnapshot(store, input = {}) {
     const scoped = (await Promise.all([...scopeTags]
         .filter((tag) => SCOPE_PREFIXES.some((prefix) => tag.startsWith(prefix)) && !tag.startsWith("namespace:"))
         // A namespace in scope narrows every lookup: scoped facts never cross namespaces.
-        .map((tag) => store.listConclusions({ status: "approved", tags: [tag, ...namespaces], limit: 200 })))).flat();
+        .map((tag) => store.listConclusions({ status: "approved", tags: [tag, ...namespaces], limit: 200 }))))
+        .flat()
+        // Folder-name and canonical-project matches compete by recency, so older facts under one name can't crowd out
+        // newer ones under the other.
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const candidates = [...new Map([...scoped, ...newest].map((record) => [record.id, record])).values()].filter(isSnapshotSafe);
     const seen = new Set();
     const sections = [
