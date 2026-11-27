@@ -4,6 +4,7 @@ import { conclusionApprovalStatus } from "./approval.js";
 import { synthesizeWithCommand } from "./chat.js";
 import { isConsolidationEvidence } from "./consolidate.js";
 import { isUnsafeMemoryText } from "./memory-safety.js";
+import { tokenizeSearchText } from "./tokenize.js";
 import type { PathmarkStore } from "./store.js";
 import type { PathmarkConfig, PathmarkRecord, SearchResult } from "./types.js";
 
@@ -187,8 +188,6 @@ export async function dreamMemory(
           return namespace ? namespaces.length === 1 && namespaces[0] === namespace : namespaces.length === 0;
         })
         .filter((record) => conclusionApprovalStatus(record) !== "rejected")
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-        .slice(0, EXISTING_LIMIT)
         .map((record) => [record.id, record]),
     );
     for (let offset = 0; offset < ordered.length && result.batches < maxBatches; offset += batchSize) {
@@ -202,7 +201,7 @@ export async function dreamMemory(
       try {
         answer = await synthesizeWithCommand({
           config,
-          question: dreamInstructions(project, [...existing.values()], batch.map((record) => record.id), maxProposals, now),
+          question: dreamInstructions(project, shownConclusions(existing, batch), batch.map((record) => record.id), maxProposals, now),
           context: batch.map(asSearchResult),
         });
       } catch (error) {
@@ -221,7 +220,7 @@ export async function dreamMemory(
         continue;
       }
       // Decide every approval before writing anything, so a verifier failure leaves the whole batch for a retry.
-      const decisions: { candidate: Candidate; approve: boolean; ownerBacked: boolean }[] = [];
+      const decisions: { candidate: Candidate; approve: boolean; ownerBacked: boolean; ownerWords: PathmarkRecord[] }[] = [];
       let verifyFailed: string | undefined;
       for (const candidate of parsed.candidates) {
         const ownerWords = candidate.evidenceIds.map((id) => evidenceById.get(id)).filter((record): record is PathmarkRecord => Boolean(record && isOwnerWords(record)));
@@ -235,16 +234,16 @@ export async function dreamMemory(
           }
           approve = verdict === "supported";
         }
-        decisions.push({ candidate, approve, ownerBacked });
+        decisions.push({ candidate, approve, ownerBacked, ownerWords });
       }
       if (verifyFailed) {
         fail(verifyFailed);
         continue;
       }
       result.dropped += parsed.dropped;
-      for (const { candidate, approve, ownerBacked } of decisions) {
+      for (const { candidate, approve, ownerBacked, ownerWords } of decisions) {
         const change = apply
-          ? await applyCandidate(store, { project, namespace }, candidate, approve, ownerBacked, existing, now)
+          ? await applyCandidate(store, { project, namespace }, candidate, approve, ownerBacked, ownerWords, existing, now)
           : previewChange(candidate, approve, ownerBacked, existing);
         result.changes.push(change);
       }
@@ -315,9 +314,18 @@ async function applyCandidate(
   candidate: Candidate,
   approve: boolean,
   ownerBacked: boolean,
+  ownerEvidence: PathmarkRecord[],
   existing: Map<string, PathmarkRecord>,
   now: Date,
 ): Promise<Change> {
+  if (approve) {
+    // The cited words must still be exactly what the verifier saw (no edit, delete or sync meanwhile).
+    const current = await store.getMany(candidate.evidenceIds);
+    approve = ownerEvidence.every((record) => {
+      const fresh = current.get(record.id);
+      return Boolean(fresh && fresh.updatedAt === record.updatedAt && isOwnerWords(fresh));
+    });
+  }
   const at = now.toISOString();
   const tags = normalizeTags([scope.project, ...(scope.namespace ? [scope.namespace] : []), ...candidate.tags, "derived-conclusion", "dream"]);
   const source = "pathmark:dream";
@@ -340,7 +348,9 @@ async function applyCandidate(
       return { ...base, action: created ? "pending" : "duplicate", id: record.id, ...(current ? { supersedes: current.id, previousText: current.text } : {}) };
     }
     const replacedStatus = conclusionApprovalStatus(shown) === "pending" ? "pending" : "approved";
-    if (approve || replacedStatus === "pending") {
+    // A pending proposal is never retired here: the owner may be approving it on another machine right now, and
+    // a newer tombstone would erase that decision on the next merge. The candidate is filed next to it instead.
+    if (approve && replacedStatus === "approved") {
       // Replace now: an approved fact on the owner's word, or an older proposal nobody decided on. Status and revision
       // are checked again under the write lock, so an approval or edit that lands meanwhile is never overridden.
       const record = await store.supersede(
@@ -367,7 +377,8 @@ async function applyCandidate(
 
 // The user's own words: a prompt captured by the hooks (role-user + codex-raw). MCP writes can't set codex-raw.
 function isOwnerWords(record: PathmarkRecord): boolean {
-  return record.tags.includes("role-user") && record.tags.includes("codex-raw");
+  // A record whose text was ever edited (history) is no longer verbatim, whatever its tags say.
+  return record.tags.includes("role-user") && record.tags.includes("codex-raw") && !(record.history?.length);
 }
 
 // Auto-approval needs a second, narrow check: do the cited words of the user actually say this?
@@ -399,7 +410,7 @@ async function ownerWordsSupport(
 function previewChange(candidate: Candidate, approve: boolean, ownerBacked: boolean, existing: Map<string, PathmarkRecord>): Change {
   const replaced = candidate.supersedes ? existing.get(candidate.supersedes) : undefined;
   const action: Change["action"] = replaced
-    ? approve || conclusionApprovalStatus(replaced) === "pending" ? (approve ? "superseded" : "superseded_pending") : "pending"
+    ? approve && conclusionApprovalStatus(replaced) !== "pending" ? "superseded" : "pending"
     : approve ? "approved" : "pending";
   return {
     action,
@@ -408,6 +419,21 @@ function previewChange(candidate: Candidate, approve: boolean, ownerBacked: bool
     ownerBacked,
     confidence: candidate.confidence,
   };
+}
+
+// What the model sees of the project's memory: the newest conclusions plus the ones that share the most
+// words with this batch, so it can merge into an old fact instead of proposing it again.
+function shownConclusions(existing: Map<string, PathmarkRecord>, batch: PathmarkRecord[]): PathmarkRecord[] {
+  const all = [...existing.values()];
+  const newest = [...all].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, EXISTING_LIMIT / 2);
+  const batchTerms = new Set(tokenizeSearchText(batch.map((record) => record.text).join(" ")));
+  const relevant = all
+    .map((record) => ({ record, score: tokenizeSearchText(record.text).filter((term) => batchTerms.has(term)).length }))
+    .filter((entry) => entry.score > 1)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, EXISTING_LIMIT / 2)
+    .map((entry) => entry.record);
+  return [...new Map([...relevant, ...newest].map((record) => [record.id, record])).values()];
 }
 
 function dreamInstructions(

@@ -27,6 +27,8 @@ try {
       'if (input.includes("Verification task")) { process.stdout.write(JSON.stringify({ supported: !input.includes("Kubernetes") })); process.exit(0); }',
       'if (input.includes("broken-reply")) { process.stdout.write("Sorry, I could not"); process.exit(0); }',
       "const out = [];",
+      'if (input.includes("eta-owner")) out.push({ text: "Eta uses port 4100 (2026-11-27).", tags: ["decision"], evidenceIds: ["eta-owner"], confidence: 0.95, supersedes: "eta-pending" });',
+      'if (input.includes("theta-edited")) out.push({ text: "Theta deploys nightly (2026-11-27).", tags: ["decision"], evidenceIds: ["theta-edited"], confidence: 0.95, supersedes: null });',
       'if (input.includes("epsilon-owner")) out.push({ text: "Epsilon ships on Fridays (2026-11-27).", tags: ["decision"], evidenceIds: ["epsilon-owner"], confidence: 0.95, supersedes: null });',
       `if (input.includes("race-evidence")) { const { PathmarkStore } = await import(${JSON.stringify(path.resolve("dist/store.js"))}); const { loadConfig } = await import(${JSON.stringify(path.resolve("dist/config.js"))}); process.env.PATHMARK_STORE_DIR = ${JSON.stringify(path.join(temp, "dream"))}; const s = new PathmarkStore(loadConfig()); await s.update("race-target", { text: "Zeta runs in Oslo (edited during the dream)." }); out.push({ text: "Zeta runs in Madrid (2026-11-27).", tags: ["architecture"], evidenceIds: ["race-evidence"], confidence: 0.95, supersedes: "race-target" }); }`,
       'const staging = input.match(/^(\\S+) \\| approved \\| Deploys of alpha/m);',
@@ -73,6 +75,10 @@ try {
     { id: "race-target", kind: "conclusion", text: "Zeta runs in Lisbon.", tags: ["project:zeta", "approval-approved"], source: "test", approval: { status: "approved", proposedAt: recent(9000), decidedAt: recent(9000) }, evidenceIds: ["legacy"] },
     { id: "race-evidence", kind: "memory", text: "We moved zeta to Madrid.", tags: ["project:zeta", "role-user", "codex-raw"], source: "test", createdAt: recent(30) },
     { id: "race-two", kind: "memory", text: "Fine.", tags: ["project:zeta", "role-assistant", "codex-raw"], source: "test", createdAt: recent(29) },
+    { id: "eta-pending", kind: "conclusion", text: "Eta uses port 4000.", tags: ["project:eta", "approval-pending"], source: "test", approval: { status: "pending", proposedAt: recent(500) }, evidenceIds: ["legacy"] },
+    { id: "eta-owner", kind: "memory", text: "Eta moved to port 4100.", tags: ["project:eta", "role-user", "codex-raw"], source: "test", createdAt: recent(28) },
+    { id: "eta-two", kind: "memory", text: "Noted.", tags: ["project:eta", "role-assistant", "codex-raw"], source: "test", createdAt: recent(27) },
+    { id: "theta-two", kind: "memory", text: "Sure.", tags: ["project:theta", "role-assistant", "codex-raw"], source: "test", createdAt: recent(25) },
     { id: "too-old", kind: "memory", text: "An alpha note from long ago.", tags: ["project:alpha", "role-user", "codex-raw"], source: "test", createdAt: "2025-01-01T00:00:00.000Z" },
   ]);
 
@@ -87,7 +93,7 @@ try {
   const preview = await dreamMemory(store, dreamConfig, { autoApprove: true, projects: ["alpha", "beta", "gamma"] });
   assert.equal(preview.status, "preview");
   const conclusionsAfterPreview = await store.all({ kind: "conclusion" });
-  assert.equal(conclusionsAfterPreview.length, 3, "a preview writes nothing");
+  assert.equal(conclusionsAfterPreview.length, 4, "a preview writes nothing");
   const previewAlpha = preview.projects.find((project) => project.project === "project:alpha");
   assert.deepEqual(previewAlpha.changes.map((change) => change.action).sort(), ["approved", "pending", "pending", "pending", "pending", "superseded"]);
   assert.equal(previewAlpha.dropped, 3, "unknown, mixed and low-confidence citations are dropped");
@@ -136,6 +142,13 @@ try {
   const zetaChange = zeta.projects[0].changes[0];
   assert.equal(zetaChange.action, "pending", "a conclusion edited during synthesis is never replaced on the stale view");
   assert.equal((await store.get("race-target")).text, "Zeta runs in Oslo (edited during the dream).", "the concurrent edit survives");
+  const eta = await dreamMemory(store, dreamConfig, { apply: true, autoApprove: true, projects: ["eta"] });
+  assert.equal(eta.projects[0].changes[0].action, "pending", "a pending proposal is never retired by the dream");
+  assert.ok(await store.get("eta-pending"), "the owner can still approve the original proposal");
+  // A legacy capture edited before markers were dropped on edit: it carries history.
+  await store.mergeRecords([{ id: "theta-edited", kind: "memory", text: "Theta deploys nightly.", tags: ["project:theta", "role-user", "codex-raw"], source: "test", createdAt: recent(26), updatedAt: recent(26), history: [{ text: "Theta deploys weekly.", tags: [], source: "test", updatedAt: recent(27) }] }]);
+  const theta = await dreamMemory(store, dreamConfig, { apply: true, autoApprove: true, projects: ["theta"] });
+  assert.equal(theta.projects[0].changes[0].action, "pending", "a capture whose text was ever edited is not the owner's words");
   const captured = await store.update("owner-region", { text: "An agent rewrote this prompt." });
   assert.ok(!captured.tags.includes("codex-raw") && captured.tags.includes("role-user"), "editing captured text drops the capture marker");
   const callsAfterFirst = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;

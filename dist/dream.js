@@ -4,6 +4,7 @@ import { conclusionApprovalStatus } from "./approval.js";
 import { synthesizeWithCommand } from "./chat.js";
 import { isConsolidationEvidence } from "./consolidate.js";
 import { isUnsafeMemoryText } from "./memory-safety.js";
+import { tokenizeSearchText } from "./tokenize.js";
 // A dream is the unattended consolidation pass, modelled on Anthropic's two dream designs:
 // Claude Code's Auto Dream (orient on existing memory, gather new signal, merge it in, prune) and
 // Managed Agents dreaming (a bounded batch of sessions in, a reviewable result out, duplicates merged,
@@ -105,8 +106,6 @@ export async function dreamMemory(store, config, options = {}) {
             return namespace ? namespaces.length === 1 && namespaces[0] === namespace : namespaces.length === 0;
         })
             .filter((record) => conclusionApprovalStatus(record) !== "rejected")
-            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-            .slice(0, EXISTING_LIMIT)
             .map((record) => [record.id, record]));
         for (let offset = 0; offset < ordered.length && result.batches < maxBatches; offset += batchSize) {
             const batch = ordered.slice(offset, offset + batchSize).map(boundedEvidence);
@@ -121,7 +120,7 @@ export async function dreamMemory(store, config, options = {}) {
             try {
                 answer = await synthesizeWithCommand({
                     config,
-                    question: dreamInstructions(project, [...existing.values()], batch.map((record) => record.id), maxProposals, now),
+                    question: dreamInstructions(project, shownConclusions(existing, batch), batch.map((record) => record.id), maxProposals, now),
                     context: batch.map(asSearchResult),
                 });
             }
@@ -155,16 +154,16 @@ export async function dreamMemory(store, config, options = {}) {
                     }
                     approve = verdict === "supported";
                 }
-                decisions.push({ candidate, approve, ownerBacked });
+                decisions.push({ candidate, approve, ownerBacked, ownerWords });
             }
             if (verifyFailed) {
                 fail(verifyFailed);
                 continue;
             }
             result.dropped += parsed.dropped;
-            for (const { candidate, approve, ownerBacked } of decisions) {
+            for (const { candidate, approve, ownerBacked, ownerWords } of decisions) {
                 const change = apply
-                    ? await applyCandidate(store, { project, namespace }, candidate, approve, ownerBacked, existing, now)
+                    ? await applyCandidate(store, { project, namespace }, candidate, approve, ownerBacked, ownerWords, existing, now)
                     : previewChange(candidate, approve, ownerBacked, existing);
                 result.changes.push(change);
             }
@@ -229,7 +228,15 @@ export async function dreamMemory(store, config, options = {}) {
         digest,
     };
 }
-async function applyCandidate(store, scope, candidate, approve, ownerBacked, existing, now) {
+async function applyCandidate(store, scope, candidate, approve, ownerBacked, ownerEvidence, existing, now) {
+    if (approve) {
+        // The cited words must still be exactly what the verifier saw (no edit, delete or sync meanwhile).
+        const current = await store.getMany(candidate.evidenceIds);
+        approve = ownerEvidence.every((record) => {
+            const fresh = current.get(record.id);
+            return Boolean(fresh && fresh.updatedAt === record.updatedAt && isOwnerWords(fresh));
+        });
+    }
     const at = now.toISOString();
     const tags = normalizeTags([scope.project, ...(scope.namespace ? [scope.namespace] : []), ...candidate.tags, "derived-conclusion", "dream"]);
     const source = "pathmark:dream";
@@ -249,7 +256,9 @@ async function applyCandidate(store, scope, candidate, approve, ownerBacked, exi
             return { ...base, action: created ? "pending" : "duplicate", id: record.id, ...(current ? { supersedes: current.id, previousText: current.text } : {}) };
         }
         const replacedStatus = conclusionApprovalStatus(shown) === "pending" ? "pending" : "approved";
-        if (approve || replacedStatus === "pending") {
+        // A pending proposal is never retired here: the owner may be approving it on another machine right now, and
+        // a newer tombstone would erase that decision on the next merge. The candidate is filed next to it instead.
+        if (approve && replacedStatus === "approved") {
             // Replace now: an approved fact on the owner's word, or an older proposal nobody decided on. Status and revision
             // are checked again under the write lock, so an approval or edit that lands meanwhile is never overridden.
             const record = await store.supersede(shown.id, { kind: "conclusion", ...draft, approval }, { requireStatus: replacedStatus, requireUpdatedAt: shown.updatedAt });
@@ -272,7 +281,8 @@ async function applyCandidate(store, scope, candidate, approve, ownerBacked, exi
 }
 // The user's own words: a prompt captured by the hooks (role-user + codex-raw). MCP writes can't set codex-raw.
 function isOwnerWords(record) {
-    return record.tags.includes("role-user") && record.tags.includes("codex-raw");
+    // A record whose text was ever edited (history) is no longer verbatim, whatever its tags say.
+    return record.tags.includes("role-user") && record.tags.includes("codex-raw") && !(record.history?.length);
 }
 // Auto-approval needs a second, narrow check: do the cited words of the user actually say this?
 // Any failure or doubt leaves the conclusion pending.
@@ -300,7 +310,7 @@ async function ownerWordsSupport(config, claim, ownerWords) {
 function previewChange(candidate, approve, ownerBacked, existing) {
     const replaced = candidate.supersedes ? existing.get(candidate.supersedes) : undefined;
     const action = replaced
-        ? approve || conclusionApprovalStatus(replaced) === "pending" ? (approve ? "superseded" : "superseded_pending") : "pending"
+        ? approve && conclusionApprovalStatus(replaced) !== "pending" ? "superseded" : "pending"
         : approve ? "approved" : "pending";
     return {
         action,
@@ -309,6 +319,20 @@ function previewChange(candidate, approve, ownerBacked, existing) {
         ownerBacked,
         confidence: candidate.confidence,
     };
+}
+// What the model sees of the project's memory: the newest conclusions plus the ones that share the most
+// words with this batch, so it can merge into an old fact instead of proposing it again.
+function shownConclusions(existing, batch) {
+    const all = [...existing.values()];
+    const newest = [...all].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, EXISTING_LIMIT / 2);
+    const batchTerms = new Set(tokenizeSearchText(batch.map((record) => record.text).join(" ")));
+    const relevant = all
+        .map((record) => ({ record, score: tokenizeSearchText(record.text).filter((term) => batchTerms.has(term)).length }))
+        .filter((entry) => entry.score > 1)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, EXISTING_LIMIT / 2)
+        .map((entry) => entry.record);
+    return [...new Map([...relevant, ...newest].map((record) => [record.id, record])).values()];
 }
 function dreamInstructions(project, existing, evidenceIds, maxProposals, now) {
     return [
