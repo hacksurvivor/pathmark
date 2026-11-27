@@ -315,7 +315,7 @@ export class PathmarkStore {
   async decideConclusion(
     id: string,
     status: "approved" | "rejected",
-    patch: { text?: string; tags?: string[]; decidedBy?: string; note?: string } = {},
+    patch: { text?: string; tags?: string[]; decidedBy?: string; note?: string; inheritPlacement?: boolean } = {},
   ): Promise<PathmarkRecord | undefined> {
     await this.ensureReady();
     return this.withWriteLock(async () => {
@@ -361,15 +361,34 @@ export class PathmarkStore {
       const replacements = new Map<string, PathmarkRecord>([[id, updated]]);
       if (status === "approved" && existing.supersedes) {
         const originalRow = db.prepare("SELECT * FROM records WHERE id = ? AND deleted_at IS NULL").get(existing.supersedes) as IndexedRow | undefined;
-        if (originalRow) {
-          const original = rowToRecord(originalRow);
-          replacements.set(original.id, { ...original, supersededBy: id, deletedAt: now, updatedAt: now });
+        // The conclusion this replaces is gone (replaced by another approval, deleted, or never synced here):
+        // approving would act on a stale view, so it needs a fresh review instead.
+        if (!originalRow) {
+          // Name the live fact that took its place, so the proposal can be re-staged against it.
+          let current = existing.supersedes;
+          for (let hop = 0; hop < 20; hop += 1) {
+            const row = db.prepare("SELECT * FROM records WHERE id = ?").get(current) as IndexedRow | undefined;
+            const next = row ? rowToRecord(row).supersededBy : undefined;
+            if (!next) break;
+            current = next;
+          }
+          const live = current !== existing.supersedes ? ` It was replaced by ${current}; re-stage the proposal against that one.` : "";
+          throw new Error(`The conclusion this proposal replaces (${existing.supersedes}) is no longer live; review it again.${live}`);
         }
+        const original = rowToRecord(originalRow);
+        if (patch.inheritPlacement ?? patch.tags === undefined) {
+          // Without explicit tags from the reviewer, the replacement takes the original's current placement (wiki
+          // page, client page, section), read under this lock: a move made after the proposal was written is kept.
+          const isPlacement = (tag: string) => /^(wiki|wiki-private|section):/.test(tag);
+          const placed = normalizeTags([...updated.tags.filter((tag) => !isPlacement(tag)), ...original.tags.filter(isPlacement)]);
+          replacements.set(id, { ...updated, tags: placed });
+        }
+        replacements.set(original.id, { ...original, supersededBy: id, deletedAt: now, updatedAt: now });
       }
       await this.rewriteRecords(replacements);
       indexRecords(db, [...replacements.values()]);
       await updateIndexMetadata(db, this.config.memoryFile, currentInvalidRecordCount(db));
-      return updated;
+      return replacements.get(id) ?? updated;
     });
   }
 
@@ -1479,6 +1498,8 @@ function compactionHash(record: PathmarkRecord): string {
 
 function canDedupeRecord(incoming: PathmarkRecord, candidate: PathmarkRecord): boolean {
   if (incoming.kind !== "conclusion") return true;
+  // A proposal that replaces a different conclusion is a different proposal, even with the same text.
+  if ((incoming.supersedes ?? "") !== (candidate.supersedes ?? "")) return false;
   const incomingStatus = conclusionApprovalStatus(incoming);
   const candidateStatus = conclusionApprovalStatus(candidate);
   if (incomingStatus === "pending") return candidateStatus === "pending" || candidateStatus === "approved";

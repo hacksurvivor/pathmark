@@ -5,8 +5,9 @@ import { loadConfig } from "../config.js";
 import { deterministicId } from "../ids.js";
 import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "../memory-safety.js";
 import { redactSecrets } from "../redact.js";
+import { canonicalProject } from "../aliases.js";
 import { informativeSearchTerms, selectRelevantResultsByIntent } from "../relevance.js";
-import { PathmarkStore } from "../store.js";
+import { PathmarkStore, namespaceTag } from "../store.js";
 import { buildMemorySnapshot } from "../snapshot.js";
 import { tokenizeSearchText } from "../tokenize.js";
 import { captureToolActivity, digest } from "./activity.js";
@@ -29,7 +30,13 @@ export async function recall(input) {
     try {
         const [snapshot, consolidation] = await Promise.all([
             config.codexMemorySnapshot
-                ? buildMemorySnapshot(store, { scopeTags: primaryPromptRecallTags(input), charLimit: config.snapshotCharLimit })
+                ? buildMemorySnapshot(store, {
+                    scopeTags: [
+                        ...withCanonicalProject(primaryPromptRecallTags(input)),
+                        ...(config.defaultNamespace ? [namespaceTag(config.defaultNamespace)] : []),
+                    ],
+                    charLimit: config.snapshotCharLimit,
+                })
                 : undefined,
             config.codexProactiveConsolidation
                 ? proactiveConsolidationBatch(store, input, config.consolidationMinEvidence).catch(() => undefined)
@@ -526,6 +533,15 @@ function promptRecallTagFilters(input) {
     if (session)
         filters.push([`session:${session}`]);
     return filters;
+}
+// Approved conclusions use the canonical project name (project-aliases.json); captured records keep the folder name.
+// Snapshots look up both, so neither older folder-tagged conclusions nor canonical ones are missed. Raw recall keeps
+// the folder scope only, so an alias never pulls raw prompts from another checkout.
+function withCanonicalProject(tags) {
+    const extra = tags
+        .filter((tag) => tag.startsWith("project:"))
+        .map((tag) => `project:${canonicalProject(tag.slice("project:".length))}`);
+    return [...new Set([...tags, ...extra])];
 }
 function primaryPromptRecallTags(input) {
     const tags = [];

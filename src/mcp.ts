@@ -39,7 +39,7 @@ export async function runMcpServer(): Promise<void> {
     {
       name: "pathmark",
       title: "Pathmark",
-      version: "0.2.0",
+      version: "0.2.1",
       websiteUrl: "https://github.com/hacksurvivor/pathmark",
     },
     { instructions: SERVER_INSTRUCTIONS },
@@ -341,6 +341,8 @@ export async function runMcpServer(): Promise<void> {
       const approved = await store.decideConclusion(id, "approved", {
         ...(text === undefined ? {} : { text: safeWriteText(text, config.redactMcpWrites) }),
         ...(approvalTags === undefined ? {} : { tags: approvalTags }),
+        // Only tags the reviewer typed are a placement decision; a namespace alone keeps the original's placement.
+        inheritPlacement: tags === undefined,
         decidedBy,
         note,
       });

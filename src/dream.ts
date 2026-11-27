@@ -3,6 +3,7 @@ import path from "node:path";
 import { conclusionApprovalStatus } from "./approval.js";
 import { synthesizeWithCommand } from "./chat.js";
 import { isConsolidationEvidence } from "./consolidate.js";
+import { projectAliases } from "./aliases.js";
 import { isUnsafeMemoryText } from "./memory-safety.js";
 import { tokenizeSearchText } from "./tokenize.js";
 import type { PathmarkStore } from "./store.js";
@@ -18,9 +19,6 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
 const EVIDENCE_TEXT_LIMIT = 1_500;
 const EXISTING_LIMIT = 60;
 const STATE_FILE = "dream-state.json";
-// Capture tags a project by its folder name; this maps folder names to the project name conclusions use,
-// e.g. {"co-ode": "co-od", "huncho": "pathmark"}.
-const ALIAS_FILE = "project-aliases.json";
 const DIGEST_FILE = "dream-digest.md";
 const AUTO_APPROVE_CONFIDENCE = 0.9;
 const RETRY_DAYS = 7;
@@ -112,10 +110,10 @@ export async function dreamMemory(
   const days = clamp(options.days ?? 30, 1, 3_650);
   const statePath = path.join(config.storeDir, STATE_FILE);
   const state = await readState(statePath);
-  const aliases = await readAliases(path.join(config.storeDir, ALIAS_FILE));
+  const aliases = projectAliases(config.storeDir);
   const canonical = (tag: string) => {
     const name = tag.slice("project:".length);
-    return `project:${aliases[name] ?? name}`;
+    return `project:${Object.hasOwn(aliases, name) ? aliases[name] : name}`;
   };
   const wanted = new Set((options.projects ?? []).map(projectTag).map(canonical));
 
@@ -333,6 +331,12 @@ async function applyCandidate(
     ? { status: "approved" as const, proposedAt: at, decidedAt: at, decidedBy: "pathmark dream", note: AUTO_NOTE }
     : { status: "pending" as const, proposedAt: at };
   const draft = { text: candidate.text, tags, source, evidenceIds: candidate.evidenceIds, createdAt: at };
+  // A replacement keeps where the old fact lived (its wiki page, client page or section), so approving it can
+  // never move a private fact onto a public page.
+  const placed = (replaced: PathmarkRecord) => ({
+    ...draft,
+    tags: normalizeTags([...tags, ...replaced.tags.filter((tag) => /^(wiki|wiki-private|section):/.test(tag))]),
+  });
   const base = { text: candidate.text, ownerBacked, confidence: candidate.confidence };
   if (candidate.supersedes) {
     const shown = existing.get(candidate.supersedes); // the exact revision the model saw
@@ -342,7 +346,7 @@ async function applyCandidate(
       // The conclusion changed or went away while the model was thinking (a sync, a person): never act on the stale
       // view. Stage the candidate for review, against the current revision if there still is one.
       const { record, created } = await store.proposeConclusion(
-        { ...draft, ...(current && current.kind === "conclusion" ? { supersedes: current.id } : {}) },
+        current && current.kind === "conclusion" ? { ...placed(current), supersedes: current.id } : draft,
         { dedupe: true },
       );
       return { ...base, action: created ? "pending" : "duplicate", id: record.id, ...(current ? { supersedes: current.id, previousText: current.text } : {}) };
@@ -355,7 +359,7 @@ async function applyCandidate(
       // are checked again under the write lock, so an approval or edit that lands meanwhile is never overridden.
       const record = await store.supersede(
         shown.id,
-        { kind: "conclusion", ...draft, approval },
+        { kind: "conclusion", ...placed(shown), approval },
         { requireStatus: replacedStatus, requireUpdatedAt: shown.updatedAt },
       );
       if (record) {
@@ -365,7 +369,7 @@ async function applyCandidate(
       }
     }
     // An approved fact is only replaced after review: the proposal carries `supersedes`, and approving it retires the old one.
-    const { record, created } = await store.proposeConclusion({ ...draft, supersedes: shown.id }, { dedupe: true });
+    const { record, created } = await store.proposeConclusion({ ...placed(shown), supersedes: shown.id }, { dedupe: true });
     return { ...base, action: created ? "pending" : "duplicate", id: record.id, supersedes: shown.id, previousText: shown.text };
   }
   // One write: an auto-approved conclusion is never visible as pending, and never replaceable as pending.
@@ -541,20 +545,6 @@ function renderDigest(
     if (result.evidenceLeft > 0) lines.push(`- ${result.evidenceLeft} evidence records left for the next dream`);
   }
   return `${lines.join("\n")}\n`;
-}
-
-async function readAliases(file: string): Promise<Record<string, string>> {
-  try {
-    const parsed = JSON.parse(await readFile(file, "utf8")) as unknown;
-    if (!isObject(parsed)) return {};
-    return Object.fromEntries(
-      Object.entries(parsed)
-        .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim() !== "")
-        .map(([from, to]) => [from.trim().toLowerCase(), to.trim().toLowerCase()]),
-    );
-  } catch {
-    return {};
-  }
 }
 
 async function readState(file: string): Promise<DreamState> {

@@ -2229,7 +2229,8 @@ try {
   const cliRecallOutput = JSON.parse(recallRun.stdout);
   assert.equal(cliRecallOutput.hookSpecificOutput.hookEventName, "SessionStart");
   assert.equal(cliRecallOutput.hookSpecificOutput.additionalContext.includes("CLI capture path"), false);
-  assert.equal(cliRecallOutput.hookSpecificOutput.additionalContext.includes("<pathmark-memory-snapshot>"), true);
+  // No approved conclusions yet: no snapshot block at all (0.2.1), rather than an empty one.
+  assert.equal(cliRecallOutput.hookSpecificOutput.additionalContext.includes("<pathmark-memory-snapshot>"), false);
 
   const observeRun = runCli(["observe"], {
     env: cliEnv,
