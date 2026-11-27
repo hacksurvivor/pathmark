@@ -10,7 +10,7 @@ import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG }
 import { answerMemory } from "./memory-query.js";
 import { redactSecrets } from "./redact.js";
 import { selectRelevantResultsByIntent } from "./relevance.js";
-import { namespaceTag, PathmarkStore } from "./store.js";
+import { namespaceTag, PathmarkStore, CAPTURE_MARKER_TAGS } from "./store.js";
 import { sessionTrace } from "./session-trace.js";
 import { buildMemorySnapshot } from "./snapshot.js";
 import { conclusionApprovalStatus } from "./approval.js";
@@ -691,10 +691,8 @@ export async function runMcpServer(): Promise<void> {
 
 // Tags only automatic capture may set. `pathmark dream` treats role-user + codex-raw as the user's own
 // words when deciding auto-approval, so MCP callers can't add the capture markers.
-const CAPTURE_TAGS = new Set(["codex-raw", "codex-session", "immediate-prompt"]);
-
 function withoutCaptureTags(tags: string[]): string[] {
-  return tags.filter((tag) => !CAPTURE_TAGS.has(tag.trim().toLowerCase()));
+  return tags.filter((tag) => !CAPTURE_MARKER_TAGS.has(tag.trim().toLowerCase()));
 }
 
 function scopedTags(tags: string[] | undefined, namespace: string | undefined): string[] {

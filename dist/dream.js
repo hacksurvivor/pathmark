@@ -18,6 +18,7 @@ const STATE_FILE = "dream-state.json";
 const ALIAS_FILE = "project-aliases.json";
 const DIGEST_FILE = "dream-digest.md";
 const AUTO_APPROVE_CONFIDENCE = 0.9;
+const RETRY_DAYS = 7;
 const MIN_CONFIDENCE = 0.8;
 const AUTO_NOTE = "Auto-approved: the user's own words state it (checked separately).";
 export async function dreamMemory(store, config, options = {}) {
@@ -44,11 +45,24 @@ export async function dreamMemory(store, config, options = {}) {
             reason: "A dream runs unattended, so it needs PATHMARK_SYNTHESIS_PROVIDER=claude, codex, command or openai-compatible.",
         };
     }
+    // Evidence that kept failing for a week is given up on (marked reviewed), so it can't block retention forever.
+    let givenUp = 0;
+    for (const [id, failedAt] of Object.entries(state.retry)) {
+        if (now.getTime() - Date.parse(failedAt) > RETRY_DAYS * DAY_MS) {
+            if (apply) {
+                state.reviewed[id] = now.toISOString();
+                delete state.retry[id];
+            }
+            givenUp += 1;
+        }
+    }
     const cutoff = now.getTime() - days * DAY_MS;
     const evidence = (await store.all({ kind: "memory" }))
         .filter(isConsolidationEvidence)
         .filter((record) => !state.reviewed[record.id])
         .filter((record) => {
+        if (state.retry[record.id])
+            return true;
         const createdAt = Date.parse(record.createdAt);
         return Number.isFinite(createdAt) && createdAt >= cutoff;
     });
@@ -59,7 +73,10 @@ export async function dreamMemory(store, config, options = {}) {
         const project = captured ? canonical(captured) : undefined;
         if (!project || (wanted.size > 0 && !wanted.has(project)))
             continue;
-        const namespace = record.tags.find((tag) => tag.startsWith("namespace:"));
+        const namespaces = record.tags.filter((tag) => tag.startsWith("namespace:"));
+        if (namespaces.length > 1)
+            continue; // ambiguous scope: never guess which namespace it belongs to
+        const namespace = namespaces[0];
         const key = namespace ? `${project} ${namespace}` : project;
         let scope = byProject.get(key);
         if (!scope) {
@@ -69,7 +86,7 @@ export async function dreamMemory(store, config, options = {}) {
         scope.records.push(record);
     }
     const queue = [...byProject.values()]
-        .filter((scope) => scope.records.length >= minEvidence)
+        .filter((scope) => scope.records.length >= minEvidence || scope.records.some((record) => state.retry[record.id]))
         .sort((left, right) => left.records.length - right.records.length)
         .slice(0, maxProjects);
     const conclusions = await store.all({ kind: "conclusion" });
@@ -77,10 +94,16 @@ export async function dreamMemory(store, config, options = {}) {
     for (const scope of queue) {
         const { project, namespace } = scope;
         const result = { project: scope.key, evidenceReviewed: 0, evidenceLeft: 0, batches: 0, dropped: 0, changes: [], errors: [] };
-        const ordered = [...scope.records].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+        // Batches that failed before go first, then oldest first.
+        const ordered = [...scope.records].sort((a, b) => Number(Boolean(state.retry[b.id])) - Number(Boolean(state.retry[a.id])) ||
+            a.createdAt.localeCompare(b.createdAt) ||
+            a.id.localeCompare(b.id));
         const existing = new Map(conclusions
             .filter((record) => !record.deletedAt && record.tags.includes(project))
-            .filter((record) => (namespace ? record.tags.includes(namespace) : !record.tags.some((tag) => tag.startsWith("namespace:"))))
+            .filter((record) => {
+            const namespaces = record.tags.filter((tag) => tag.startsWith("namespace:"));
+            return namespace ? namespaces.length === 1 && namespaces[0] === namespace : namespaces.length === 0;
+        })
             .filter((record) => conclusionApprovalStatus(record) !== "rejected")
             .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
             .slice(0, EXISTING_LIMIT)
@@ -88,6 +111,12 @@ export async function dreamMemory(store, config, options = {}) {
         for (let offset = 0; offset < ordered.length && result.batches < maxBatches; offset += batchSize) {
             const batch = ordered.slice(offset, offset + batchSize).map(boundedEvidence);
             result.batches += 1;
+            const fail = (message) => {
+                result.errors.push(message);
+                if (apply)
+                    for (const record of batch)
+                        state.retry[record.id] ??= now.toISOString();
+            };
             let answer;
             try {
                 answer = await synthesizeWithCommand({
@@ -97,53 +126,74 @@ export async function dreamMemory(store, config, options = {}) {
                 });
             }
             catch (error) {
-                result.errors.push(error instanceof Error ? error.message : String(error));
+                fail(error instanceof Error ? error.message : String(error));
                 continue;
             }
             if (answer === undefined) {
-                result.errors.push("synthesis returned nothing");
+                fail("synthesis returned nothing");
                 continue;
             }
             const evidenceById = new Map(batch.map((record) => [record.id, record]));
             const parsed = parseCandidates(answer, evidenceById, existing, maxProposals);
             if (!parsed.valid) {
                 // Not a usable reply (empty, cut off, wrong shape): the batch stays unreviewed for the next run.
-                result.errors.push("synthesis reply was not dream JSON");
+                fail("synthesis reply was not dream JSON");
                 continue;
             }
-            result.dropped += parsed.dropped;
+            // Decide every approval before writing anything, so a verifier failure leaves the whole batch for a retry.
+            const decisions = [];
+            let verifyFailed;
             for (const candidate of parsed.candidates) {
                 const ownerWords = candidate.evidenceIds.map((id) => evidenceById.get(id)).filter((record) => Boolean(record && isOwnerWords(record)));
                 const ownerBacked = ownerWords.length > 0;
-                const approve = autoApprove &&
-                    ownerBacked &&
-                    candidate.confidence >= AUTO_APPROVE_CONFIDENCE &&
-                    (await ownerWordsSupport(config, candidate.text, ownerWords));
+                let approve = false;
+                if (autoApprove && ownerBacked && candidate.confidence >= AUTO_APPROVE_CONFIDENCE) {
+                    const verdict = await ownerWordsSupport(config, candidate.text, ownerWords);
+                    if (verdict === "error") {
+                        verifyFailed = "verification call failed";
+                        break;
+                    }
+                    approve = verdict === "supported";
+                }
+                decisions.push({ candidate, approve, ownerBacked });
+            }
+            if (verifyFailed) {
+                fail(verifyFailed);
+                continue;
+            }
+            result.dropped += parsed.dropped;
+            for (const { candidate, approve, ownerBacked } of decisions) {
                 const change = apply
                     ? await applyCandidate(store, { project, namespace }, candidate, approve, ownerBacked, existing, now)
                     : previewChange(candidate, approve, ownerBacked, existing);
                 result.changes.push(change);
             }
             result.evidenceReviewed += batch.length;
-            if (apply)
-                for (const record of batch)
+            if (apply) {
+                for (const record of batch) {
                     state.reviewed[record.id] = now.toISOString();
+                    delete state.retry[record.id];
+                }
+            }
         }
         result.evidenceLeft = ordered.length - result.evidenceReviewed;
         results.push(result);
     }
     let maintenance;
-    const failed = results.some((result) => result.errors.length > 0);
+    const failed = results.some((result) => result.errors.length > 0) || Object.keys(state.retry).length > 0;
     if (apply) {
         const known = new Set((await store.all({ kind: "memory", includeDeleted: true })).map((record) => record.id));
         for (const id of Object.keys(state.reviewed))
             if (!known.has(id))
                 delete state.reviewed[id];
+        for (const id of Object.keys(state.retry))
+            if (!known.has(id))
+                delete state.retry[id];
         state.lastRunAt = now.toISOString();
         await writeState(statePath, state);
         if (failed) {
             // Failed batches stay unreviewed; retention waits for a clean run so it can't expire evidence still to be read.
-            maintenance = { skipped: "a batch failed; retention runs after the next clean dream" };
+            maintenance = { skipped: "evidence waits for a retry; retention runs after a clean dream" };
         }
         else if (options.compact !== false && (options.retentionDays ?? config.retentionDays) > 0) {
             const compacted = await store.compact({
@@ -159,7 +209,7 @@ export async function dreamMemory(store, config, options = {}) {
         }
     }
     const pendingTotal = (await store.all({ kind: "conclusion" })).filter((record) => !record.deletedAt && conclusionApprovalStatus(record) === "pending").length;
-    const digest = renderDigest(results, { apply, autoApprove, pendingTotal, now, skipped: byProject.size - queue.length });
+    const digest = renderDigest(results, { apply, autoApprove, pendingTotal, now, skipped: byProject.size - queue.length, givenUp });
     let digestFile;
     if (apply) {
         digestFile = path.resolve(options.digestFile ?? path.join(config.storeDir, DIGEST_FILE));
@@ -171,6 +221,8 @@ export async function dreamMemory(store, config, options = {}) {
         autoApprove,
         projects: results,
         projectsWaiting: Math.max(0, byProject.size - queue.length),
+        retryWaiting: Object.keys(state.retry).length,
+        givenUp,
         pendingTotal,
         ...(maintenance ? { maintenance } : {}),
         ...(digestFile ? { digestFile } : {}),
@@ -186,24 +238,30 @@ async function applyCandidate(store, scope, candidate, approve, ownerBacked, exi
         : { status: "pending", proposedAt: at };
     const draft = { text: candidate.text, tags, source, evidenceIds: candidate.evidenceIds, createdAt: at };
     const base = { text: candidate.text, ownerBacked, confidence: candidate.confidence };
-    // Look the replaced conclusion up again: its status may have changed (approved by a person, or by an
-    // earlier batch of this run) since the cache was filled.
-    const replaced = candidate.supersedes ? await store.get(candidate.supersedes) : undefined;
-    if (replaced && replaced.kind === "conclusion") {
-        const replacedStatus = conclusionApprovalStatus(replaced) === "pending" ? "pending" : "approved";
+    if (candidate.supersedes) {
+        const shown = existing.get(candidate.supersedes); // the exact revision the model saw
+        const current = await store.get(candidate.supersedes);
+        const unchanged = Boolean(shown && current && current.kind === "conclusion" && current.updatedAt === shown.updatedAt);
+        if (!unchanged || !shown) {
+            // The conclusion changed or went away while the model was thinking (a sync, a person): never act on the stale
+            // view. Stage the candidate for review, against the current revision if there still is one.
+            const { record, created } = await store.proposeConclusion({ ...draft, ...(current && current.kind === "conclusion" ? { supersedes: current.id } : {}) }, { dedupe: true });
+            return { ...base, action: created ? "pending" : "duplicate", id: record.id, ...(current ? { supersedes: current.id, previousText: current.text } : {}) };
+        }
+        const replacedStatus = conclusionApprovalStatus(shown) === "pending" ? "pending" : "approved";
         if (approve || replacedStatus === "pending") {
-            // Replace now: an approved fact on the owner's word, or an older proposal nobody decided on.
-            // requireStatus is checked under the write lock, so an approval that lands meanwhile is never overridden.
-            const record = await store.supersede(replaced.id, { kind: "conclusion", ...draft, approval }, { requireStatus: replacedStatus });
+            // Replace now: an approved fact on the owner's word, or an older proposal nobody decided on. Status and revision
+            // are checked again under the write lock, so an approval or edit that lands meanwhile is never overridden.
+            const record = await store.supersede(shown.id, { kind: "conclusion", ...draft, approval }, { requireStatus: replacedStatus, requireUpdatedAt: shown.updatedAt });
             if (record) {
-                existing.delete(replaced.id);
+                existing.delete(shown.id);
                 existing.set(record.id, record);
-                return { ...base, action: approve ? "superseded" : "superseded_pending", id: record.id, supersedes: replaced.id, previousText: replaced.text };
+                return { ...base, action: approve ? "superseded" : "superseded_pending", id: record.id, supersedes: shown.id, previousText: shown.text };
             }
         }
         // An approved fact is only replaced after review: the proposal carries `supersedes`, and approving it retires the old one.
-        const { record, created } = await store.proposeConclusion({ ...draft, supersedes: replaced.id }, { dedupe: true });
-        return { ...base, action: created ? "pending" : "duplicate", id: record.id, supersedes: replaced.id, previousText: replaced.text };
+        const { record, created } = await store.proposeConclusion({ ...draft, supersedes: shown.id }, { dedupe: true });
+        return { ...base, action: created ? "pending" : "duplicate", id: record.id, supersedes: shown.id, previousText: shown.text };
     }
     // One write: an auto-approved conclusion is never visible as pending, and never replaceable as pending.
     const { record, created } = await store.addRecord({ kind: "conclusion", ...draft, approval }, { dedupe: true });
@@ -231,10 +289,12 @@ async function ownerWordsSupport(config, claim, ownerWords) {
             context: ownerWords.map(asSearchResult),
         });
         const parsed = parseJsonObject(answer ?? "");
-        return isObject(parsed) && parsed.supported === true;
+        if (!isObject(parsed) || typeof parsed.supported !== "boolean")
+            return "error";
+        return parsed.supported ? "supported" : "unsupported";
     }
     catch {
-        return false;
+        return "error";
     }
 }
 function previewChange(candidate, approve, ownerBacked, existing) {
@@ -320,6 +380,8 @@ function renderDigest(results, info) {
         (info.autoApprove ? "" : " Auto-approval is off."));
     if (info.skipped > 0)
         lines.push(`${info.skipped} more projects wait for the next dream.`);
+    if (info.givenUp > 0)
+        lines.push(`Gave up on ${info.givenUp} evidence records that failed for ${RETRY_DAYS} days.`);
     for (const result of results) {
         if (result.changes.length === 0 && result.errors.length === 0)
             continue;
@@ -362,13 +424,18 @@ async function readState(file) {
     try {
         const parsed = JSON.parse(await readFile(file, "utf8"));
         if (parsed && parsed.version === 1 && isObject(parsed.reviewed)) {
-            return { version: 1, lastRunAt: parsed.lastRunAt, reviewed: parsed.reviewed };
+            return {
+                version: 1,
+                lastRunAt: parsed.lastRunAt,
+                reviewed: parsed.reviewed,
+                retry: isObject(parsed.retry) ? parsed.retry : {},
+            };
         }
     }
     catch {
         // Missing or unreadable state starts a fresh dream; nothing is lost but repeat work.
     }
-    return { version: 1, reviewed: {} };
+    return { version: 1, reviewed: {}, retry: {} };
 }
 async function writeState(file, state) {
     const tmp = `${file}.${process.pid}.tmp`;

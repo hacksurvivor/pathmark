@@ -104,6 +104,7 @@ export declare class PathmarkStore {
     }>;
     supersede(id: string, input: PathmarkRecordDraft, options?: {
         requireStatus?: "pending" | "approved";
+        requireUpdatedAt?: string;
     }): Promise<PathmarkRecord | undefined>;
     diagnose(): Promise<StoreDiagnosis>;
     purge(options: PurgeOptions): Promise<StoreMaintenanceResult>;
@@ -134,6 +135,8 @@ export declare class PathmarkStore {
     private createBackup;
     private withWriteLock;
 }
+/** Tags only automatic capture sets; together with role-user they mark the user's verbatim words. */
+export declare const CAPTURE_MARKER_TAGS: Set<string>;
 export declare function parseMergeRecord(value: unknown): PathmarkRecord | undefined;
 export declare function namespaceTag(namespace: string): string;
 export {};

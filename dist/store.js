@@ -441,7 +441,10 @@ export class PathmarkStore {
                 source: existing.source,
                 updatedAt: existing.updatedAt,
             };
-            const replacementTags = patch.tags === undefined ? existing.tags : normalizeTags(patch.tags);
+            const requestedTags = patch.tags === undefined ? existing.tags : normalizeTags(patch.tags);
+            // Edited text is no longer what was captured: drop the capture markers that make a record count as
+            // the user's verbatim words (checked here, under the write lock, whatever the caller passed).
+            const replacementTags = text !== existing.text ? requestedTags.filter((tag) => !CAPTURE_MARKER_TAGS.has(tag)) : requestedTags;
             const safeTags = memorySafetyTags(replacementTags, text);
             const approvalStatus = conclusionApprovalStatus(existing);
             const updated = {
@@ -545,6 +548,9 @@ export class PathmarkStore {
             const existing = rowToRecord(row);
             // Checked under the write lock, so a status that changed since the caller looked (an approval) is honoured.
             if (options.requireStatus && conclusionApprovalStatus(existing) !== options.requireStatus)
+                return undefined;
+            // The exact revision the caller based its decision on: any edit since then (a sync, a person) wins.
+            if (options.requireUpdatedAt && existing.updatedAt !== options.requireUpdatedAt)
                 return undefined;
             const now = new Date().toISOString();
             const approval = input.kind === "conclusion" ? input.approval : undefined;
@@ -1053,6 +1059,8 @@ function compactRecords(records, options) {
     }
     return [...candidates, ...tombstones].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
+/** Tags only automatic capture sets; together with role-user they mark the user's verbatim words. */
+export const CAPTURE_MARKER_TAGS = new Set(["codex-raw", "codex-session", "immediate-prompt"]);
 export function parseMergeRecord(value) {
     const record = parseRecordLine(JSON.stringify(value));
     return record ? { ...record, tags: normalizeTags(memorySafetyTags(record.tags, record.text)) } : undefined;

@@ -23,9 +23,12 @@ try {
       'import { appendFileSync, readFileSync } from "node:fs";',
       'const input = readFileSync(0, "utf8");',
       `appendFileSync(${JSON.stringify(calls)}, "call\\n");`,
+      'if (input.includes("Verification task") && input.includes("Epsilon")) { process.stdout.write("garbled"); process.exit(0); }',
       'if (input.includes("Verification task")) { process.stdout.write(JSON.stringify({ supported: !input.includes("Kubernetes") })); process.exit(0); }',
       'if (input.includes("broken-reply")) { process.stdout.write("Sorry, I could not"); process.exit(0); }',
       "const out = [];",
+      'if (input.includes("epsilon-owner")) out.push({ text: "Epsilon ships on Fridays (2026-11-27).", tags: ["decision"], evidenceIds: ["epsilon-owner"], confidence: 0.95, supersedes: null });',
+      `if (input.includes("race-evidence")) { const { PathmarkStore } = await import(${JSON.stringify(path.resolve("dist/store.js"))}); const { loadConfig } = await import(${JSON.stringify(path.resolve("dist/config.js"))}); process.env.PATHMARK_STORE_DIR = ${JSON.stringify(path.join(temp, "dream"))}; const s = new PathmarkStore(loadConfig()); await s.update("race-target", { text: "Zeta runs in Oslo (edited during the dream)." }); out.push({ text: "Zeta runs in Madrid (2026-11-27).", tags: ["architecture"], evidenceIds: ["race-evidence"], confidence: 0.95, supersedes: "race-target" }); }`,
       'const staging = input.match(/^(\\S+) \\| approved \\| Deploys of alpha/m);',
       'if (staging && input.includes("agent-override")) out.push({ text: "Deploys of alpha skip staging now (2026-11-27).", tags: ["decision"], evidenceIds: ["agent-override"], confidence: 0.95, supersedes: staging[1] });',
       'if (input.includes("owner-unrelated")) out.push({ text: "Alpha runs on Kubernetes (2026-11-27).", tags: ["architecture"], evidenceIds: ["owner-unrelated"], confidence: 0.95, supersedes: null });',
@@ -65,6 +68,11 @@ try {
     { id: "delta-two", kind: "memory", text: "Another delta note.", tags: ["project:delta", "role-user", "codex-raw"], source: "test", createdAt: recent(36) },
     { id: "ns-one", kind: "memory", text: "Namespaced alpha note.", tags: ["project:alpha", "namespace:client-x", "role-user", "codex-raw"], source: "test", createdAt: recent(35) },
     { id: "ns-two", kind: "memory", text: "Another namespaced alpha note.", tags: ["project:alpha", "namespace:client-x", "role-user", "codex-raw"], source: "test", createdAt: recent(34) },
+    { id: "epsilon-owner", kind: "memory", text: "Epsilon ships on Fridays from now on.", tags: ["project:epsilon", "role-user", "codex-raw"], source: "test", createdAt: recent(32) },
+    { id: "epsilon-two", kind: "memory", text: "Ok.", tags: ["project:epsilon", "role-assistant", "codex-raw"], source: "test", createdAt: recent(31) },
+    { id: "race-target", kind: "conclusion", text: "Zeta runs in Lisbon.", tags: ["project:zeta", "approval-approved"], source: "test", approval: { status: "approved", proposedAt: recent(9000), decidedAt: recent(9000) }, evidenceIds: ["legacy"] },
+    { id: "race-evidence", kind: "memory", text: "We moved zeta to Madrid.", tags: ["project:zeta", "role-user", "codex-raw"], source: "test", createdAt: recent(30) },
+    { id: "race-two", kind: "memory", text: "Fine.", tags: ["project:zeta", "role-assistant", "codex-raw"], source: "test", createdAt: recent(29) },
     { id: "too-old", kind: "memory", text: "An alpha note from long ago.", tags: ["project:alpha", "role-user", "codex-raw"], source: "test", createdAt: "2025-01-01T00:00:00.000Z" },
   ]);
 
@@ -76,10 +84,10 @@ try {
     { id: "worktree-note", kind: "memory", text: "Note from a worktree of alpha.", tags: ["project:alpha-2", "role-assistant", "codex-raw"], source: "test", createdAt: recent(33) },
   ]);
 
-  const preview = await dreamMemory(store, dreamConfig, { autoApprove: true });
+  const preview = await dreamMemory(store, dreamConfig, { autoApprove: true, projects: ["alpha", "beta", "gamma"] });
   assert.equal(preview.status, "preview");
   const conclusionsAfterPreview = await store.all({ kind: "conclusion" });
-  assert.equal(conclusionsAfterPreview.length, 2, "a preview writes nothing");
+  assert.equal(conclusionsAfterPreview.length, 3, "a preview writes nothing");
   const previewAlpha = preview.projects.find((project) => project.project === "project:alpha");
   assert.deepEqual(previewAlpha.changes.map((change) => change.action).sort(), ["approved", "pending", "pending", "pending", "pending", "superseded"]);
   assert.equal(previewAlpha.dropped, 3, "unknown, mixed and low-confidence citations are dropped");
@@ -120,12 +128,26 @@ try {
   assert.equal(deltaRun.projects[0].errors.length, 1, "a broken reply is a failure, not an empty result");
   assert.equal(deltaRun.projects[0].evidenceReviewed, 0);
   assert.ok(deltaRun.maintenance.skipped, "retention waits for a clean run");
+  const epsilon = await dreamMemory(store, dreamConfig, { apply: true, autoApprove: true, projects: ["epsilon"] });
+  assert.equal(epsilon.projects[0].errors[0], "verification call failed", "a failed verification fails the batch");
+  assert.equal(epsilon.projects[0].changes.length, 0, "nothing from that batch is written");
+  assert.ok(!(await store.all({ kind: "conclusion" })).some((record) => record.text.includes("Epsilon ships")));
+  const zeta = await dreamMemory(store, dreamConfig, { apply: true, autoApprove: true, projects: ["zeta"] });
+  const zetaChange = zeta.projects[0].changes[0];
+  assert.equal(zetaChange.action, "pending", "a conclusion edited during synthesis is never replaced on the stale view");
+  assert.equal((await store.get("race-target")).text, "Zeta runs in Oslo (edited during the dream).", "the concurrent edit survives");
+  const captured = await store.update("owner-region", { text: "An agent rewrote this prompt." });
+  assert.ok(!captured.tags.includes("codex-raw") && captured.tags.includes("role-user"), "editing captured text drops the capture marker");
   const callsAfterFirst = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
   const second = await dreamMemory(store, dreamConfig, { apply: true, autoApprove: true, projects: ["alpha", "beta"] });
   const callsAfterSecond = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
   assert.equal(callsAfterSecond, callsAfterFirst, "reviewed evidence, even with nothing kept (beta), is not read again");
-  const deltaAgain = await dreamMemory(store, dreamConfig, { projects: ["delta"] });
-  assert.equal(deltaAgain.projects[0].project, "project:delta", "failed evidence is offered again");
+  const deltaAgain = await dreamMemory(store, dreamConfig, { projects: ["delta"], minEvidence: 50 });
+  assert.equal(deltaAgain.projects[0].project, "project:delta", "failed evidence is retried even below the minimum");
+  assert.equal(deltaAgain.retryWaiting, 4, "delta and epsilon records wait for a retry");
+  const later = await dreamMemory(store, dreamConfig, { apply: true, projects: ["nothing"], now: new Date(Date.now() + 8 * 24 * 3600 * 1000) });
+  assert.equal(later.givenUp, 4, "after a week of failures the records are given up on");
+  assert.equal(later.retryWaiting, 0);
   assert.equal(second.projects.length, 0);
 
   const noAuto = new PathmarkStore({ ...config, storeDir: path.join(temp, "noauto"), memoryFile: path.join(temp, "noauto", "memory.jsonl") });
