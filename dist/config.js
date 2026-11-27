@@ -51,6 +51,7 @@ export function loadConfig() {
         codexProactiveConsolidation: envFlag("PATHMARK_CODEX_PROACTIVE_CONSOLIDATION", true),
         consolidationMinEvidence: Math.max(2, Math.min(envNonNegativeInt("PATHMARK_CONSOLIDATION_MIN_EVIDENCE", 8), 100)),
         conclusionApprovalRequired: envFlag("PATHMARK_CONCLUSION_APPROVAL", true),
+        dreamAutoApprove: envFlag("PATHMARK_DREAM_AUTO_APPROVE", false),
         defaultNamespace: process.env.PATHMARK_NAMESPACE?.trim() || undefined,
         redactMcpWrites: envFlag("PATHMARK_REDACT_MCP_WRITES", true),
         retentionDays: envNonNegativeInt("PATHMARK_RETENTION_DAYS", 0),

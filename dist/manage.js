@@ -3,23 +3,26 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { auditMemory } from "./audit.js";
 import { consolidateMemory } from "./consolidate.js";
+import { dreamMemory } from "./dream.js";
 import { recordRecallFeedback } from "./feedback.js";
 import { loadConfig } from "./config.js";
 import { answerMemory } from "./memory-query.js";
 import { redactSecrets } from "./redact.js";
 import { decryptPortableExport } from "./portable.js";
-import { namespaceTag, PathmarkStore } from "./store.js";
+import { namespaceTag, parseMergeRecord, PathmarkStore } from "./store.js";
 const USAGE = [
     "Usage:",
     "  pathmark chat QUESTION [--namespace=NAME] [--tag=TAG] [--limit=N] [--kind=memory|conclusion]",
     "  pathmark feedback --recall-id=ID [--relevant=ID] [--irrelevant=ID] [--note=TEXT]",
     "  pathmark consolidate [--days=N] [--namespace=NAME] [--tag=TAG] [--limit=N] [--cursor=ID] [--max-proposals=N] [--apply]",
+    "  pathmark dream [--apply] [--project=NAME] [--auto-approve] [--days=N] [--max-projects=N] [--batch-size=N] [--max-batches=N] [--retention-days=N] [--tombstone-days=N] [--no-compact] [--digest=FILE]",
     "  pathmark audit [--days=N] [--namespace=NAME] [--tag=TAG]",
     "  pathmark doctor",
-    "  pathmark compact [--apply] [--retention-days=N] [--keep-deleted] [--no-dedupe]",
+    "  pathmark compact [--apply] [--retention-days=N] [--tombstone-days=N] [--keep-deleted] [--no-dedupe]",
     "  pathmark backup [--output=FILE]",
-    "  pathmark export [--output=FILE] [--namespace=NAME] [--tag=TAG] [--kind=memory|conclusion] [--encrypted]",
+    "  pathmark export [--output=FILE] [--namespace=NAME] [--tag=TAG] [--kind=memory|conclusion] [--include-deleted] [--encrypted]",
     "  pathmark import FILE [--namespace=NAME] [--dry-run]",
+    "  pathmark import FILE --merge [--dry-run]   (newer updatedAt wins; carries approvals and deletes between copies)",
     "  pathmark import-native claude-code [--root=DIR] [--project=SLUG] [--namespace=NAME] [--dry-run]",
     "  pathmark ingest --client=NAME [--namespace=NAME] [--dry-run] < transcript.json",
     "  pathmark purge [--id=ID] [--namespace=NAME] [--tag=TAG] [--source=SOURCE] [--before=ISO] [--apply]",
@@ -65,6 +68,27 @@ export async function runManagementCommand(command, args) {
         }), null, 2));
         return;
     }
+    if (command === "dream") {
+        const result = await dreamMemory(store, config, {
+            apply: options.flags.has("apply"),
+            projects: options.values.get("project"),
+            autoApprove: options.flags.has("auto-approve") ? true : undefined,
+            days: numberOption(options, "days", 30),
+            maxProjects: numberOption(options, "max-projects", 20),
+            batchSize: numberOption(options, "batch-size", 40),
+            maxBatchesPerProject: numberOption(options, "max-batches", 5),
+            retentionDays: numberOption(options, "retention-days", config.retentionDays),
+            tombstoneDays: numberOption(options, "tombstone-days", 30),
+            compact: !options.flags.has("no-compact"),
+            digestFile: option(options, "digest"),
+        });
+        console.log(JSON.stringify(result, null, 2));
+        // A scheduler must see a partly failed dream: failed batches stay unreviewed for the next run.
+        if (Array.isArray(result.projects) && result.projects.some((project) => project.errors?.length)) {
+            process.exitCode = 1;
+        }
+        return;
+    }
     if (command === "audit") {
         console.log(JSON.stringify(await auditMemory(store, {
             days: numberOption(options, "days", 30),
@@ -83,6 +107,7 @@ export async function runManagementCommand(command, args) {
             dedupe: !options.flags.has("no-dedupe"),
             dropDeleted: !options.flags.has("keep-deleted"),
             retentionDays: numberOption(options, "retention-days", config.retentionDays),
+            tombstoneDays: numberOption(options, "tombstone-days", 0),
             dryRun: !options.flags.has("apply"),
         }), null, 2));
         return;
@@ -120,6 +145,16 @@ export async function runManagementCommand(command, args) {
         const inputFile = options.positionals[0];
         if (!inputFile)
             throw new Error(`Import requires a JSONL file.\n${USAGE}`);
+        if (options.flags.has("merge")) {
+            const records = await mergeableRecords(inputFile, config.redactMcpWrites, config.exportEncryptionKey);
+            if (options.flags.has("dry-run")) {
+                console.log(JSON.stringify({ applied: false, recordCount: records.length }, null, 2));
+                return;
+            }
+            const backupFile = await store.backup();
+            console.log(JSON.stringify({ applied: true, ...(await store.mergeRecords(records)), backupFile }, null, 2));
+            return;
+        }
         const drafts = await importDrafts(inputFile, option(options, "namespace"), config.redactMcpWrites, config.exportEncryptionKey);
         if (options.flags.has("dry-run")) {
             console.log(JSON.stringify({ applied: false, recordCount: drafts.length }, null, 2));
@@ -190,6 +225,28 @@ function numberOption(options, name, fallback) {
 }
 function defaultExportFile() {
     return path.resolve(`pathmark-export-${new Date().toISOString().replace(/[:.]/g, "-")}.jsonl`);
+}
+// Full records for a merge: ids, timestamps, approval, supersession and tombstones are kept as exported.
+// The store validates each one with its canonical reader before writing anything.
+async function mergeableRecords(file, redact, encryptionKey) {
+    const raw = await decryptPortableExport(await readFile(path.resolve(file), "utf8"), encryptionKey);
+    const records = [];
+    for (const [index, line] of raw.split("\n").entries()) {
+        if (!line.trim())
+            continue;
+        let value;
+        try {
+            value = JSON.parse(line);
+        }
+        catch {
+            throw new Error(`Invalid JSON on line ${index + 1}`);
+        }
+        if (!parseMergeRecord(value)) {
+            throw new Error(`Invalid Pathmark record for --merge on line ${index + 1} (export with --include-deleted from Pathmark)`);
+        }
+        records.push(redact && isObject(value) && typeof value.text === "string" ? { ...value, text: redactSecrets(value.text).text } : value);
+    }
+    return records;
 }
 async function importDrafts(file, namespace, redact, encryptionKey) {
     const raw = await decryptPortableExport(await readFile(path.resolve(file), "utf8"), encryptionKey);

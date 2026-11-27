@@ -19,6 +19,8 @@ export interface CompactOptions {
     dedupe?: boolean;
     dropDeleted?: boolean;
     retentionDays?: number;
+    /** Keep tombstones (deleted or superseded records) this many days so a merge can carry the delete to other copies. 0 drops them all. */
+    tombstoneDays?: number;
     dryRun?: boolean;
 }
 export declare function closeOpenStores(): Promise<void>;
@@ -89,7 +91,21 @@ export declare class PathmarkStore {
         expiresAt?: string | null;
     }): Promise<PathmarkRecord | undefined>;
     updateActivities(updates: Map<string, PathmarkActivity>): Promise<number>;
-    supersede(id: string, input: PathmarkRecordDraft): Promise<PathmarkRecord | undefined>;
+    /**
+     * Merge full records from another copy of the store (an export made with --include-deleted).
+     * New ids are added as they are, tombstones included, so a delete is never resurrected later.
+     * For an id both copies hold, the version with the later updatedAt wins: approvals, edits,
+     * supersessions and deletes made on one machine reach the other.
+     */
+    mergeRecords(rawIncoming: unknown[]): Promise<{
+        added: number;
+        updated: number;
+        unchanged: number;
+    }>;
+    supersede(id: string, input: PathmarkRecordDraft, options?: {
+        requireStatus?: "pending" | "approved";
+        requireUpdatedAt?: string;
+    }): Promise<PathmarkRecord | undefined>;
     diagnose(): Promise<StoreDiagnosis>;
     purge(options: PurgeOptions): Promise<StoreMaintenanceResult>;
     compact(options?: CompactOptions): Promise<StoreMaintenanceResult>;
@@ -119,5 +135,8 @@ export declare class PathmarkStore {
     private createBackup;
     private withWriteLock;
 }
+/** Tags only automatic capture sets; together with role-user they mark the user's verbatim words. */
+export declare const CAPTURE_MARKER_TAGS: Set<string>;
+export declare function parseMergeRecord(value: unknown): PathmarkRecord | undefined;
 export declare function namespaceTag(namespace: string): string;
 export {};

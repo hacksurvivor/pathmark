@@ -441,7 +441,10 @@ export class PathmarkStore {
                 source: existing.source,
                 updatedAt: existing.updatedAt,
             };
-            const replacementTags = patch.tags === undefined ? existing.tags : normalizeTags(patch.tags);
+            const requestedTags = patch.tags === undefined ? existing.tags : normalizeTags(patch.tags);
+            // Edited text is no longer what was captured: drop the capture markers that make a record count as
+            // the user's verbatim words (checked here, under the write lock, whatever the caller passed).
+            const replacementTags = text !== existing.text ? requestedTags.filter((tag) => !CAPTURE_MARKER_TAGS.has(tag)) : requestedTags;
             const safeTags = memorySafetyTags(replacementTags, text);
             const approvalStatus = conclusionApprovalStatus(existing);
             const updated = {
@@ -488,7 +491,54 @@ export class PathmarkStore {
             return replacements.size;
         });
     }
-    async supersede(id, input) {
+    /**
+     * Merge full records from another copy of the store (an export made with --include-deleted).
+     * New ids are added as they are, tombstones included, so a delete is never resurrected later.
+     * For an id both copies hold, the version with the later updatedAt wins: approvals, edits,
+     * supersessions and deletes made on one machine reach the other.
+     */
+    async mergeRecords(rawIncoming) {
+        // Validate and normalize every record with the canonical reader before the first write:
+        // approval tags are recomputed (a pending record never reaches recall untagged) and unsafe text is quarantined.
+        const incoming = rawIncoming.map((value, index) => {
+            const record = parseMergeRecord(value);
+            if (!record)
+                throw new Error(`Invalid Pathmark record at position ${index + 1}; nothing was merged`);
+            return record;
+        });
+        await this.ensureReady();
+        return this.withWriteLock(async () => {
+            const db = await this.database();
+            const findRecord = db.prepare("SELECT * FROM records WHERE id = ?");
+            const replacements = new Map();
+            const additions = new Map();
+            let unchanged = 0;
+            for (const record of incoming) {
+                const pending = additions.get(record.id) ?? replacements.get(record.id);
+                const row = pending ? undefined : findRecord.get(record.id);
+                const current = pending ?? (row ? rowToRecord(row) : undefined);
+                if (!current) {
+                    additions.set(record.id, record);
+                }
+                else if (isNewerVersion(record, current)) {
+                    if (additions.has(record.id))
+                        additions.set(record.id, record);
+                    else
+                        replacements.set(record.id, record);
+                }
+                else {
+                    unchanged += 1;
+                }
+            }
+            if (replacements.size > 0 || additions.size > 0) {
+                await this.rewriteRecords(replacements, [...additions.values()]);
+                indexRecords(db, [...replacements.values(), ...additions.values()]);
+                await updateIndexMetadata(db, this.config.memoryFile, currentInvalidRecordCount(db));
+            }
+            return { added: additions.size, updated: replacements.size, unchanged };
+        });
+    }
+    async supersede(id, input, options = {}) {
         await this.ensureReady();
         return this.withWriteLock(async () => {
             const db = await this.database();
@@ -496,6 +546,12 @@ export class PathmarkStore {
             if (!row)
                 return undefined;
             const existing = rowToRecord(row);
+            // Checked under the write lock, so a status that changed since the caller looked (an approval) is honoured.
+            if (options.requireStatus && conclusionApprovalStatus(existing) !== options.requireStatus)
+                return undefined;
+            // The exact revision the caller based its decision on: any edit since then (a sync, a person) wins.
+            if (options.requireUpdatedAt && existing.updatedAt !== options.requireUpdatedAt)
+                return undefined;
             const now = new Date().toISOString();
             const approval = input.kind === "conclusion" ? input.approval : undefined;
             const baseTags = memorySafetyTags(input.tags ?? existing.tags, input.text);
@@ -557,6 +613,7 @@ export class PathmarkStore {
                 dedupe: options.dedupe !== false,
                 dropDeleted: options.dropDeleted !== false,
                 retentionDays: options.retentionDays ?? this.config.retentionDays,
+                tombstoneDays: options.tombstoneDays ?? 0,
             });
             const removed = parsed.records.length - compacted.length + parsed.invalidRecordCount;
             if (options.dryRun !== false || removed === 0) {
@@ -955,38 +1012,74 @@ function maintenanceResult(records, invalidRecordCount, indexFile, removedRecord
 }
 function compactRecords(records, options) {
     const now = Date.now();
-    const retentionCutoff = options.retentionDays > 0 ? now - options.retentionDays * 24 * 60 * 60 * 1000 : undefined;
+    const day = 24 * 60 * 60 * 1000;
+    const retentionCutoff = options.retentionDays > 0 ? now - options.retentionDays * day : undefined;
+    const tombstoneCutoff = options.tombstoneDays > 0 ? now - options.tombstoneDays * day : undefined;
+    // Evidence a live conclusion cites is its provenance: retention and dedupe never drop it.
+    const cited = new Set(records
+        .filter((record) => record.kind === "conclusion" && !record.deletedAt && conclusionApprovalStatus(record) !== "rejected")
+        .flatMap((record) => record.evidenceIds ?? []));
+    const tombstones = [];
     let candidates = records.filter((record) => {
-        if (options.dropDeleted && record.deletedAt)
+        if (record.deletedAt) {
+            // Tombstones are kept per id (never deduped): each id needs its own delete for a merge to carry it.
+            if (!options.dropDeleted || (tombstoneCutoff !== undefined && Date.parse(record.deletedAt) > tombstoneCutoff))
+                tombstones.push(record);
             return false;
-        if (record.expiresAt && Date.parse(record.expiresAt) <= now)
+        }
+        if (record.expiresAt && Date.parse(record.expiresAt) <= now && !cited.has(record.id))
             return false;
-        if (retentionCutoff && record.kind !== "conclusion" && Date.parse(record.updatedAt) < retentionCutoff)
+        // Retention applies to automatic capture only; memories saved on purpose and conclusions stay.
+        if (retentionCutoff &&
+            isAutomaticCapture(record) &&
+            !cited.has(record.id) &&
+            Date.parse(record.updatedAt) < retentionCutoff)
             return false;
         return true;
     });
-    if (!options.dedupe)
-        return candidates;
-    const counts = new Map();
-    for (const record of candidates) {
-        const hash = compactionHash(record);
-        counts.set(hash, (counts.get(hash) ?? 0) + 1);
+    if (options.dedupe) {
+        const counts = new Map();
+        for (const record of candidates) {
+            const hash = compactionHash(record);
+            counts.set(hash, (counts.get(hash) ?? 0) + 1);
+        }
+        const seen = new Set();
+        candidates = [...candidates]
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+            .filter((record) => {
+            const hash = compactionHash(record);
+            if (seen.has(hash) && !cited.has(record.id))
+                return false;
+            seen.add(hash);
+            const occurrences = counts.get(hash) ?? 1;
+            if (occurrences > 1)
+                record.occurrences = Math.max(record.occurrences ?? 1, occurrences);
+            return true;
+        });
     }
-    const seen = new Set();
-    candidates = [...candidates]
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-        .filter((record) => {
-        const hash = compactionHash(record);
-        if (seen.has(hash))
-            return false;
-        seen.add(hash);
-        const occurrences = counts.get(hash) ?? 1;
-        if (occurrences > 1)
-            record.occurrences = Math.max(record.occurrences ?? 1, occurrences);
+    return [...candidates, ...tombstones].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+/** Tags only automatic capture sets; together with role-user they mark the user's verbatim words. */
+export const CAPTURE_MARKER_TAGS = new Set(["codex-raw", "codex-session", "immediate-prompt"]);
+export function parseMergeRecord(value) {
+    const record = parseRecordLine(JSON.stringify(value));
+    return record ? { ...record, tags: normalizeTags(memorySafetyTags(record.tags, record.text)) } : undefined;
+}
+// Later updatedAt wins. Equal instants (or unparseable ones) fall back to comparing the serialized
+// records, so every copy picks the same winner and repeated merges settle.
+function isNewerVersion(incoming, current) {
+    const a = Date.parse(incoming.updatedAt);
+    const b = Date.parse(current.updatedAt);
+    if (Number.isFinite(a) && Number.isFinite(b) && a !== b)
+        return a > b;
+    if (!Number.isFinite(a) && Number.isFinite(b))
+        return false;
+    if (Number.isFinite(a) && !Number.isFinite(b))
         return true;
-    })
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return candidates;
+    return JSON.stringify(incoming) > JSON.stringify(current);
+}
+function isAutomaticCapture(record) {
+    return Boolean(record.activity) || record.tags.includes("codex-raw") || record.tags.includes("pathmark-activity");
 }
 function hasPurgeSelector(options) {
     return Boolean(options.id || options.tags?.length || options.namespace || options.source || options.before);

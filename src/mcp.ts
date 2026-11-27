@@ -10,7 +10,7 @@ import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG }
 import { answerMemory } from "./memory-query.js";
 import { redactSecrets } from "./redact.js";
 import { selectRelevantResultsByIntent } from "./relevance.js";
-import { namespaceTag, PathmarkStore } from "./store.js";
+import { namespaceTag, PathmarkStore, CAPTURE_MARKER_TAGS } from "./store.js";
 import { sessionTrace } from "./session-trace.js";
 import { buildMemorySnapshot } from "./snapshot.js";
 import { conclusionApprovalStatus } from "./approval.js";
@@ -39,7 +39,7 @@ export async function runMcpServer(): Promise<void> {
     {
       name: "pathmark",
       title: "Pathmark",
-      version: "0.1.17",
+      version: "0.2.0",
       websiteUrl: "https://github.com/hacksurvivor/pathmark",
     },
     { instructions: SERVER_INSTRUCTIONS },
@@ -78,7 +78,7 @@ export async function runMcpServer(): Promise<void> {
         {
           kind: "memory",
           text: safeWriteText(text, config.redactMcpWrites),
-          tags: scopedTags(tags, namespace ?? config.defaultNamespace),
+          tags: withoutCaptureTags(scopedTags(tags, namespace ?? config.defaultNamespace)),
           source,
           expiresAt,
         },
@@ -425,7 +425,7 @@ export async function runMcpServer(): Promise<void> {
           : scopedTags(tags ?? existing?.tags, selectedNamespace);
       const updated = await store.update(id, {
         ...(text === undefined ? {} : { text: safeWriteText(text, config.redactMcpWrites) }),
-        ...(scoped === undefined ? {} : { tags: scoped }),
+        ...(scoped === undefined ? {} : { tags: withoutCaptureTags(scoped) }),
         ...(source === undefined ? {} : { source }),
         ...(expiresAt === undefined ? {} : { expiresAt }),
       });
@@ -467,7 +467,7 @@ export async function runMcpServer(): Promise<void> {
         const existingRecord = await store.get(id);
         if (!existingRecord) return jsonText({ status: "not_found", proposal: null });
         const { record, created } = await store.proposeConclusion(
-          { ...replacementInput, tags: replacementTags ?? existingRecord.tags, supersedes: id },
+          { ...replacementInput, tags: withoutCaptureTags(replacementTags ?? existingRecord.tags), supersedes: id },
           { dedupe: true },
         );
         return jsonText({
@@ -476,7 +476,9 @@ export async function runMcpServer(): Promise<void> {
           proposal: record,
         });
       }
-      const replacement = await store.supersede(id, replacementInput);
+      const current = await store.get(id);
+      if (!current) return jsonText({ status: "not_found", replacement: null });
+      const replacement = await store.supersede(id, { ...replacementInput, tags: withoutCaptureTags(replacementTags ?? current.tags) });
       return jsonText({ status: replacement ? "superseded" : "not_found", replacement: replacement ?? null });
     },
   );
@@ -685,6 +687,12 @@ export async function runMcpServer(): Promise<void> {
       );
     return query.trim() ? selectRelevantResultsByIntent(candidates, query, selectedLimit) : candidates.slice(0, selectedLimit);
   }
+}
+
+// Tags only automatic capture may set. `pathmark dream` treats role-user + codex-raw as the user's own
+// words when deciding auto-approval, so MCP callers can't add the capture markers.
+function withoutCaptureTags(tags: string[]): string[] {
+  return tags.filter((tag) => !CAPTURE_MARKER_TAGS.has(tag.trim().toLowerCase()));
 }
 
 function scopedTags(tags: string[] | undefined, namespace: string | undefined): string[] {

@@ -109,6 +109,7 @@ export interface PathmarkConfig {
   codexProactiveConsolidation: boolean;
   consolidationMinEvidence: number;
   conclusionApprovalRequired: boolean;
+  dreamAutoApprove: boolean;
   defaultNamespace?: string;
   redactMcpWrites: boolean;
   retentionDays: number;

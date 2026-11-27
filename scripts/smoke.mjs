@@ -232,6 +232,15 @@ if (tracePayload.mode !== "session_trace" || tracePayload.entries?.[0]?.text !==
   throw new Error("session_trace did not return the captured chronological entry");
 }
 
+const forgedCapture = await request("tools/call", {
+  name: "remember",
+  arguments: { text: "An agent claiming to be a captured prompt.", tags: ["role-user", "codex-raw", "immediate-prompt"] },
+});
+const forgedRecord = JSON.parse(forgedCapture.content?.[0]?.text ?? "{}");
+if (forgedRecord.tags?.includes("codex-raw") || forgedRecord.tags?.includes("immediate-prompt")) {
+  throw new Error("MCP remember must not set capture provenance tags");
+}
+
 const secretSave = await request("tools/call", {
   name: "remember",
   arguments: {

@@ -10,5 +10,5 @@ authors:
 repository-code: "https://github.com/hacksurvivor/pathmark"
 url: "https://www.npmjs.com/package/pathmark"
 license: "MIT"
-version: "0.1.17"
-date-released: "2026-09-28"
+version: "0.2.0"
+date-released: "2026-11-27"
