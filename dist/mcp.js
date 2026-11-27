@@ -34,7 +34,7 @@ export async function runMcpServer() {
     const server = new McpServer({
         name: "pathmark",
         title: "Pathmark",
-        version: "0.1.17",
+        version: "0.2.0",
         websiteUrl: "https://github.com/hacksurvivor/pathmark",
     }, { instructions: SERVER_INSTRUCTIONS });
     // Only external synthesis leaves the machine; client synthesis is purely local retrieval.

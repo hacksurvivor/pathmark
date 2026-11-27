@@ -95,6 +95,8 @@ export interface CompactOptions {
   dedupe?: boolean;
   dropDeleted?: boolean;
   retentionDays?: number;
+  /** Keep tombstones (deleted or superseded records) this many days so a merge can carry the delete to other copies. 0 drops them all. */
+  tombstoneDays?: number;
   dryRun?: boolean;
 }
 
@@ -605,6 +607,42 @@ export class PathmarkStore {
     });
   }
 
+  /**
+   * Merge full records from another copy of the store (an export made with --include-deleted).
+   * New ids are added as they are, tombstones included, so a delete is never resurrected later.
+   * For an id both copies hold, the version with the later updatedAt wins: approvals, edits,
+   * supersessions and deletes made on one machine reach the other.
+   */
+  async mergeRecords(incoming: PathmarkRecord[]): Promise<{ added: number; updated: number; unchanged: number }> {
+    await this.ensureReady();
+    return this.withWriteLock(async () => {
+      const db = await this.database();
+      const findRecord = db.prepare("SELECT * FROM records WHERE id = ?");
+      const replacements = new Map<string, PathmarkRecord>();
+      const additions = new Map<string, PathmarkRecord>();
+      let unchanged = 0;
+      for (const record of incoming) {
+        const pending = additions.get(record.id) ?? replacements.get(record.id);
+        const row = pending ? undefined : (findRecord.get(record.id) as IndexedRow | undefined);
+        const current = pending ?? (row ? rowToRecord(row) : undefined);
+        if (!current) {
+          additions.set(record.id, record);
+        } else if (record.updatedAt > current.updatedAt) {
+          if (additions.has(record.id)) additions.set(record.id, record);
+          else replacements.set(record.id, record);
+        } else {
+          unchanged += 1;
+        }
+      }
+      if (replacements.size > 0 || additions.size > 0) {
+        await this.rewriteRecords(replacements, [...additions.values()]);
+        indexRecords(db, [...replacements.values(), ...additions.values()]);
+        await updateIndexMetadata(db, this.config.memoryFile, currentInvalidRecordCount(db));
+      }
+      return { added: additions.size, updated: replacements.size, unchanged };
+    });
+  }
+
   async supersede(id: string, input: PathmarkRecordDraft): Promise<PathmarkRecord | undefined> {
     await this.ensureReady();
     return this.withWriteLock(async () => {
@@ -674,6 +712,7 @@ export class PathmarkStore {
         dedupe: options.dedupe !== false,
         dropDeleted: options.dropDeleted !== false,
         retentionDays: options.retentionDays ?? this.config.retentionDays,
+        tombstoneDays: options.tombstoneDays ?? 0,
       });
       const removed = parsed.records.length - compacted.length + parsed.invalidRecordCount;
       if (options.dryRun !== false || removed === 0) {
@@ -1112,36 +1151,58 @@ function maintenanceResult(
 
 function compactRecords(
   records: PathmarkRecord[],
-  options: { dedupe: boolean; dropDeleted: boolean; retentionDays: number },
+  options: { dedupe: boolean; dropDeleted: boolean; retentionDays: number; tombstoneDays: number },
 ): PathmarkRecord[] {
   const now = Date.now();
-  const retentionCutoff = options.retentionDays > 0 ? now - options.retentionDays * 24 * 60 * 60 * 1000 : undefined;
+  const day = 24 * 60 * 60 * 1000;
+  const retentionCutoff = options.retentionDays > 0 ? now - options.retentionDays * day : undefined;
+  const tombstoneCutoff = options.tombstoneDays > 0 ? now - options.tombstoneDays * day : undefined;
+  // Evidence a live conclusion cites is its provenance: retention and dedupe never drop it.
+  const cited = new Set(
+    records
+      .filter((record) => record.kind === "conclusion" && !record.deletedAt && conclusionApprovalStatus(record) !== "rejected")
+      .flatMap((record) => record.evidenceIds ?? []),
+  );
+  const tombstones: PathmarkRecord[] = [];
   let candidates = records.filter((record) => {
-    if (options.dropDeleted && record.deletedAt) return false;
+    if (record.deletedAt) {
+      if (!options.dropDeleted) return true;
+      if (tombstoneCutoff !== undefined && Date.parse(record.deletedAt) > tombstoneCutoff) tombstones.push(record);
+      return false;
+    }
     if (record.expiresAt && Date.parse(record.expiresAt) <= now) return false;
-    if (retentionCutoff && record.kind !== "conclusion" && Date.parse(record.updatedAt) < retentionCutoff) return false;
+    // Retention applies to automatic capture only; memories saved on purpose and conclusions stay.
+    if (
+      retentionCutoff &&
+      isAutomaticCapture(record) &&
+      !cited.has(record.id) &&
+      Date.parse(record.updatedAt) < retentionCutoff
+    ) return false;
     return true;
   });
-  if (!options.dedupe) return candidates;
-
-  const counts = new Map<string, number>();
-  for (const record of candidates) {
-    const hash = compactionHash(record);
-    counts.set(hash, (counts.get(hash) ?? 0) + 1);
-  }
-  const seen = new Set<string>();
-  candidates = [...candidates]
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .filter((record) => {
+  if (options.dedupe) {
+    const counts = new Map<string, number>();
+    for (const record of candidates) {
       const hash = compactionHash(record);
-      if (seen.has(hash)) return false;
-      seen.add(hash);
-      const occurrences = counts.get(hash) ?? 1;
-      if (occurrences > 1) record.occurrences = Math.max(record.occurrences ?? 1, occurrences);
-      return true;
-    })
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  return candidates;
+      counts.set(hash, (counts.get(hash) ?? 0) + 1);
+    }
+    const seen = new Set<string>();
+    candidates = [...candidates]
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .filter((record) => {
+        const hash = compactionHash(record);
+        if (seen.has(hash) && !cited.has(record.id)) return false;
+        seen.add(hash);
+        const occurrences = counts.get(hash) ?? 1;
+        if (occurrences > 1) record.occurrences = Math.max(record.occurrences ?? 1, occurrences);
+        return true;
+      });
+  }
+  return [...candidates, ...tombstones].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+function isAutomaticCapture(record: PathmarkRecord): boolean {
+  return Boolean(record.activity) || record.tags.includes("codex-raw") || record.tags.includes("pathmark-activity");
 }
 
 function hasPurgeSelector(options: PurgeOptions): boolean {

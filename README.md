@@ -9,15 +9,16 @@ Carry intent across agents without turning stale code facts into hidden memory.
   <a href="https://scorecard.dev/viewer/?uri=github.com/hacksurvivor/pathmark"><img src="https://api.scorecard.dev/projects/github.com/hacksurvivor/pathmark/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
-## What's New — v0.1.17
+## What's New in v0.2.0
 
-Pathmark v0.1.17 stops Claude Code from gating every memory lookup:
+Pathmark v0.2.0 consolidates memory on its own. Until now, captured sessions waited for an agent to turn them into conclusions and for a person to approve each one, so most stores held thousands of raw snippets and a handful of conclusions.
 
-- `pathmark setup claude-code --apply-permissions` adds allow rules for Pathmark's ten local read-only tools, so recall and search run without a permission prompt, and in auto mode without a safety-classifier round-trip that can fail transiently;
-- it backs up `~/.claude/settings.json`, adds only missing rules, keeps every other setting, and never rewrites a file it cannot parse;
-- the allow list is tested against the tools' own `readOnlyHint`/`openWorldHint` annotations, so anything that writes, deletes, or may call an external model always keeps its prompt.
+- `pathmark dream` runs unattended, for example nightly. For each project with new evidence it reads a bounded batch through your synthesis provider, writes conclusions, replaces conclusions the evidence contradicts (history kept), and remembers which evidence it has reviewed, so evidence with nothing worth keeping is not read again. It writes a short digest of what it added, replaced and left for review.
+- With `--auto-approve` (or `PATHMARK_DREAM_AUTO_APPROVE=on`), a conclusion is approved without review only when it cites the user's own words and the model rates it 0.9 or higher. An agent's claim always waits for review, and so does a proposal that would replace an approved conclusion on an agent's word alone.
+- `pathmark import FILE --merge` merges two copies of a store: for an id both hold, the later `updatedAt` wins, and deletes travel as tombstones. Approvals and corrections made on one machine now reach the other.
+- Retention (`--retention-days`) now expires only automatic capture. Memories saved on purpose, conclusions, and any evidence a live conclusion cites are kept, so provenance survives cleanup.
 
-See the [v0.1.17 release notes](docs/releases/v0.1.17.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
+See the [v0.2.0 release notes](docs/releases/v0.2.0.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/hacksurvivor/pathmark/main/assets/pathmark-hero.png" alt="Pathmark local intent and provenance shared by Codex, Claude Code, opencode, and Gemini CLI" width="100%">
@@ -104,7 +105,7 @@ Pathmark exposes these MCP tools:
 | `approve_conclusion` | Atomically approve a proposal, optionally correcting text/tags and recording the reviewer. |
 | `reject_conclusion` | Retain a rejected proposal in the audit trail while permanently excluding it from recall. |
 | `get_memory_snapshot` | Generate a bounded USER/PROJECT/AGENT snapshot from approved canonical conclusions. |
-| `consolidate_memory` | Review a bounded unsynthesized evidence batch and optionally stage evidence-backed proposals. Nothing is auto-approved. |
+| `consolidate_memory` | Review a bounded unsynthesized evidence batch and optionally stage evidence-backed proposals. Nothing is auto-approved; for unattended consolidation use the `pathmark dream` CLI. |
 | `delete_memory` | Soft-delete a memory or conclusion by id. |
 | `update_memory` | Correct a record while preserving prior versions. |
 | `supersede_memory` | Replace an outdated record with a linked current record. |
@@ -323,6 +324,7 @@ pathmark codex uninstall
 | `PATHMARK_CODEX_PROACTIVE_CONSOLIDATION` | `on` | At session start, nudge Codex to review a bounded evidence batch when scoped raw history is accumulating without conclusions. |
 | `PATHMARK_CONSOLIDATION_MIN_EVIDENCE` | `8` | Minimum unsynthesized user/assistant records before the proactive consolidation nudge appears. |
 | `PATHMARK_CONCLUSION_APPROVAL` | `on` | Stage new conclusions for explicit approval. Set `off` only for trusted legacy automation. |
+| `PATHMARK_DREAM_AUTO_APPROVE` | `off` | Let `pathmark dream` approve a conclusion that cites the user's own words with confidence 0.9 or higher. Everything else stays pending. |
 | `PATHMARK_SYNTHESIS_PROVIDER` | `client` | `client`, `command`, `codex`, or `openai-compatible`. |
 | `PATHMARK_CHAT_COMMAND` | unset | Command provider: receives a synthesized prompt on stdin and writes an answer on stdout. |
 | `PATHMARK_CODEX_COMMAND` | `codex` | Codex provider command. |
@@ -333,7 +335,7 @@ pathmark codex uninstall
 | `PATHMARK_CHAT_TIMEOUT_MS` | `120000` | Synthesis command timeout. |
 | `PATHMARK_NAMESPACE` | unset | Default namespace applied consistently to MCP reads and writes. |
 | `PATHMARK_REDACT_MCP_WRITES` | `on` | Redact common secret-shaped values on `remember`, conclusion, update, supersede, import, and ingest paths. |
-| `PATHMARK_RETENTION_DAYS` | `0` | Retention policy used by compaction; `0` disables age-based removal. Conclusions are retained. |
+| `PATHMARK_RETENTION_DAYS` | `0` | Retention for automatic capture, used by `compact` and `dream`; `0` disables age-based removal. Conclusions, memories saved on purpose, and evidence a live conclusion cites are always kept. |
 | `PATHMARK_ACTIVITY_RETENTION_DAYS` | `30` | Automatic lifetime for recall/tool activity records; `0` disables age-based activity expiry. |
 | `PATHMARK_ACTIVITY_MAX_RECORDS` | `5000` | Physical cap for activity records; oldest activity is removed automatically. `0` disables the count cap. |
 | `PATHMARK_RERANK_COMMAND` | unset | Optional trusted local embedding/vector or hybrid reranker. Strict kind/tag/namespace filters are applied before candidates leave the store; the command receives query/candidates as JSON on stdin and returns ranked memory ids. |
@@ -434,6 +436,8 @@ pathmark audit --namespace=my-project --days=90
 pathmark doctor
 pathmark compact
 pathmark compact --apply --retention-days=90
+pathmark dream
+PATHMARK_SYNTHESIS_PROVIDER=claude pathmark dream --apply --auto-approve --retention-days=30
 pathmark purge --namespace=old-client
 pathmark purge --namespace=old-client --apply
 ```
@@ -443,6 +447,8 @@ pathmark purge --namespace=old-client --apply
 Every matched chat query records recall activity and returns a `recallId` when the store is writable. Abstentions and read-only stores return `recallId: null`. Use MCP `rate_recall` or `pathmark feedback` with exact recalled IDs to label relevance. `pathmark audit` reports `precision.status: "labeled"`, measured precision, and label coverage once feedback exists.
 
 `pathmark consolidate` is preview-first. With default client synthesis it returns the bounded evidence and exact instructions for the host agent, which can call `create_conclusion` with supporting `evidenceIds`. When more eligible evidence remains, the result includes `nextCursor` and `remainingAfterBatch`; pass the cursor to review the next stable page. With a configured server-side synthesis provider, it previews structured candidates; `--apply` stages them as pending conclusions for `approve_conclusion` or `reject_conclusion`. It never auto-approves extracted intent.
+
+`pathmark dream` is the unattended version, modelled on Anthropic's Claude Code Auto Dream and Managed Agents dreaming. It needs a server-side synthesis provider and is a preview unless `--apply` is present. Each run takes every project with at least two unreviewed user/assistant records from the last 30 days (`--days`), smallest first, up to `--max-projects`, and reads up to `--max-batches` batches of `--batch-size` records per project alongside that project's existing conclusions. The model may add a conclusion or replace an existing one (`supersedes`). Pathmark rejects any candidate that cites evidence outside the batch or rates below 0.8. Reviewed evidence ids are kept in `dream-state.json` in the store directory, and the digest goes to `dream-digest.md`. With `--retention-days` the run ends with a compaction that keeps tombstones for `--tombstone-days` (default 30) so merges can carry deletes.
 
 Applied compaction and purge create a backup before replacing the canonical file. Soft deletion remains available through `delete_memory`; hard purge physically removes selected records from JSONL and rebuilds the derived index.
 
@@ -454,6 +460,15 @@ Use scoped exports and merge imports as the transport-neutral sync layer:
 pathmark export --namespace=my-project --output=project.jsonl
 pathmark import project.jsonl --namespace=my-project
 ```
+
+To keep two copies of one store in step (two machines, say), export everything including tombstones and merge it on the other side, then the other way round:
+
+```bash
+pathmark export --include-deleted --output=this-machine.jsonl
+pathmark import this-machine.jsonl --merge
+```
+
+A plain import only adds records it doesn't have. With `--merge` it also updates records the other copy changed later and applies its deletes.
 
 For an encrypted portable bundle, configure the passphrase outside the command line:
 

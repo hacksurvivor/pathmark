@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mock } from "node:test";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -133,7 +134,9 @@ try {
   assert.equal(consolidationNudge(batch, 4).includes('"tags":["workspace:consolidate"]'), true);
   assert.equal(consolidationNudge(batch, 5), "");
   process.env.PATHMARK_CONSOLIDATION_MIN_EVIDENCE = "4";
-  const sessionContext = await recall({ cwd: "/workspace/consolidate", session_id: "new-session" });
+  // The fixtures are dated August 2026 and recall looks back 90 days from "now": pin the clock.
+  mock.timers.enable({ apis: ["Date"], now: new Date("2026-08-25T00:00:00.000Z") });
+  const sessionContext = await recall({ cwd: "/workspace/consolidate", session_id: "new-session" }).finally(() => mock.timers.reset());
   delete process.env.PATHMARK_CONSOLIDATION_MIN_EVIDENCE;
   assert.equal(sessionContext.includes("mcp__pathmark__consolidate_memory"), true);
 
