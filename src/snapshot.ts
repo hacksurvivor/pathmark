@@ -24,12 +24,14 @@ export async function buildMemorySnapshot(
   const scopeTags = new Set((input.scopeTags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean));
   // Scoped facts are fetched by tag, not filtered out of the newest 500 across the whole store: a large store
   // otherwise hides the current project's conclusions and the snapshot comes back empty.
-  const newest = await store.listConclusions({ status: "approved", limit: 501 });
+  const namespaces = [...scopeTags].filter((tag) => tag.startsWith("namespace:"));
+  const newest = await store.listConclusions({ status: "approved", tags: namespaces, limit: 501 });
   const scoped = (
     await Promise.all(
       [...scopeTags]
-        .filter((tag) => SCOPE_PREFIXES.some((prefix) => tag.startsWith(prefix)))
-        .map((tag) => store.listConclusions({ status: "approved", tags: [tag], limit: 200 })),
+        .filter((tag) => SCOPE_PREFIXES.some((prefix) => tag.startsWith(prefix)) && !tag.startsWith("namespace:"))
+        // A namespace in scope narrows every lookup: scoped facts never cross namespaces.
+        .map((tag) => store.listConclusions({ status: "approved", tags: [tag, ...namespaces], limit: 200 })),
     )
   ).flat();
   const candidates = [...new Map([...scoped, ...newest].map((record) => [record.id, record])).values()].filter(isSnapshotSafe);

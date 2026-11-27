@@ -36,5 +36,6 @@ export function projectAliases(storeDir: string = loadConfig().storeDir): Record
 }
 
 export function canonicalProject(name: string, storeDir?: string): string {
-  return projectAliases(storeDir)[name] ?? name;
+  const aliases = projectAliases(storeDir);
+  return Object.hasOwn(aliases, name) ? aliases[name] : name;
 }

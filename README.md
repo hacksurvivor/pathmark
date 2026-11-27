@@ -18,7 +18,7 @@ Pathmark v0.2.0 consolidates memory on its own. Until now, captured sessions wai
 - `pathmark import FILE --merge` merges two copies of a store: for an id both hold, the later `updatedAt` wins, and deletes travel as tombstones. Approvals and corrections made on one machine now reach the other.
 - Retention (`--retention-days`) now expires only automatic capture. Memories saved on purpose, conclusions, and any evidence a live conclusion cites are kept, so provenance survives cleanup.
 
-v0.2.1 fixes the session-start snapshot on large stores, applies project aliases at capture, and keeps page tags on dream replacements ([notes](docs/releases/v0.2.1.md)).
+v0.2.1 fixes the session-start snapshot on large stores, uses project aliases for snapshot lookups, keeps namespaces apart, and keeps page tags on replacements ([notes](docs/releases/v0.2.1.md)).
 
 See the [v0.2.0 release notes](docs/releases/v0.2.0.md) or the complete [changelog](CHANGELOG.md). The npm badge above always shows the currently published version.
 

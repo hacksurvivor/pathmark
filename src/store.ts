@@ -363,13 +363,18 @@ export class PathmarkStore {
         const originalRow = db.prepare("SELECT * FROM records WHERE id = ? AND deleted_at IS NULL").get(existing.supersedes) as IndexedRow | undefined;
         if (originalRow) {
           const original = rowToRecord(originalRow);
+          // The replacement takes the original's current placement (wiki page, client page, section), read under
+          // this lock: a move made after the proposal was written is never undone by approving it.
+          const isPlacement = (tag: string) => /^(wiki|wiki-private|section):/.test(tag);
+          const placed = normalizeTags([...updated.tags.filter((tag) => !isPlacement(tag)), ...original.tags.filter(isPlacement)]);
+          replacements.set(id, { ...updated, tags: placed });
           replacements.set(original.id, { ...original, supersededBy: id, deletedAt: now, updatedAt: now });
         }
       }
       await this.rewriteRecords(replacements);
       indexRecords(db, [...replacements.values()]);
       await updateIndexMetadata(db, this.config.memoryFile, currentInvalidRecordCount(db));
-      return updated;
+      return replacements.get(id) ?? updated;
     });
   }
 

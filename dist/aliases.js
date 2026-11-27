@@ -33,6 +33,7 @@ export function projectAliases(storeDir = loadConfig().storeDir) {
     return aliases;
 }
 export function canonicalProject(name, storeDir) {
-    return projectAliases(storeDir)[name] ?? name;
+    const aliases = projectAliases(storeDir);
+    return Object.hasOwn(aliases, name) ? aliases[name] : name;
 }
 //# sourceMappingURL=aliases.js.map

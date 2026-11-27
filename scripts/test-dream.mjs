@@ -5,7 +5,8 @@ import path from "node:path";
 import { loadConfig } from "../dist/config.js";
 import { dreamMemory } from "../dist/dream.js";
 import { buildMemorySnapshot } from "../dist/snapshot.js";
-import { projectTagFromCwd } from "../dist/codex/capture.js";
+import { projectTagFromCwd, recall } from "../dist/codex/capture.js";
+import { canonicalProject } from "../dist/aliases.js";
 import { PathmarkStore } from "../dist/store.js";
 
 const temp = await mkdtemp(path.join(os.tmpdir(), "pathmark-dream-test-"));
@@ -250,10 +251,29 @@ try {
   const empty = await buildMemorySnapshot(snapStore, { scopeTags: ["project:nobody"] });
   assert.ok(!empty.context.includes("[truncated]") || empty.records.length > 0, "no empty [truncated] block");
 
-  // --- capture applies project aliases ---
+  // --- aliases: capture keeps the folder tag; the session snapshot also looks up the canonical project ---
   await writeFile(path.join(temp, "snapshot", "project-aliases.json"), JSON.stringify({ "kappa-worktree": "kappa" }));
-  assert.equal(projectTagFromCwd("/work/kappa-worktree"), "project:kappa", "capture tags the canonical project");
-  assert.equal(projectTagFromCwd("/work/lambda"), "project:lambda");
+  assert.equal(projectTagFromCwd("/work/kappa-worktree"), "project:kappa-worktree", "capture keeps the folder scope");
+  assert.equal(projectTagFromCwd("/work/constructor"), "project:constructor", "no inherited-property lookups");
+  assert.equal(canonicalProject("constructor", path.join(temp, "snapshot")), "constructor");
+  const session = await recall({ cwd: "/work/kappa-worktree", session_id: "alias-session" });
+  assert.match(session, /Kappa deploys from main only/, "the snapshot finds canonical conclusions through the alias");
+
+  // --- snapshot never crosses namespaces ---
+  await snapStore.addRecords([
+    { id: "ns-beta", kind: "conclusion", text: "Kappa beta-only secret.", tags: ["project:kappa", "namespace:beta", "approval-approved"], source: "t", approval: { status: "approved", proposedAt: recent(1) } },
+  ]);
+  const alphaSnap = await buildMemorySnapshot(snapStore, { scopeTags: ["project:kappa", "namespace:alpha"] });
+  assert.ok(!alphaSnap.context.includes("beta-only"), "a namespace in scope narrows every lookup");
+
+  // --- approving a replacement adopts the original's current placement ---
+  await snapStore.addRecords([
+    { id: "placed-original", kind: "conclusion", text: "Kappa uses port 1.", tags: ["project:kappa", "wiki:public-page", "approval-approved"], source: "t", approval: { status: "approved", proposedAt: recent(9) } },
+  ]);
+  await snapStore.proposeConclusion({ id: "placed-proposal", text: "Kappa uses port 2.", tags: ["project:kappa", "wiki:public-page"], source: "t", supersedes: "placed-original" });
+  await snapStore.update("placed-original", { tags: ["project:kappa", "wiki-private:client-k", "approval-approved"] });
+  const approvedReplacement = await snapStore.decideConclusion("placed-proposal", "approved", { decidedBy: "owner" });
+  assert.ok(approvedReplacement.tags.includes("wiki-private:client-k") && !approvedReplacement.tags.includes("wiki:public-page"), "a move made after the proposal is kept on approval");
 
   console.log("dream, merge and retention tests passed");
 } finally {

@@ -61,7 +61,7 @@ export async function recall(input: CodexHookInput): Promise<string> {
   try {
     const [snapshot, consolidation] = await Promise.all([
       config.codexMemorySnapshot
-        ? buildMemorySnapshot(store, { scopeTags: primaryPromptRecallTags(input), charLimit: config.snapshotCharLimit })
+        ? buildMemorySnapshot(store, { scopeTags: withCanonicalProject(primaryPromptRecallTags(input)), charLimit: config.snapshotCharLimit })
         : undefined,
       config.codexProactiveConsolidation
         ? proactiveConsolidationBatch(store, input, config.consolidationMinEvidence).catch(() => undefined)
@@ -653,6 +653,16 @@ function promptRecallTagFilters(input: CodexHookInput): string[][] {
   return filters;
 }
 
+// Approved conclusions use the canonical project name (project-aliases.json); captured records keep the folder name.
+// Snapshots look up both, so neither older folder-tagged conclusions nor canonical ones are missed. Raw recall keeps
+// the folder scope only, so an alias never pulls raw prompts from another checkout.
+function withCanonicalProject(tags: string[]): string[] {
+  const extra = tags
+    .filter((tag) => tag.startsWith("project:"))
+    .map((tag) => `project:${canonicalProject(tag.slice("project:".length))}`);
+  return [...new Set([...tags, ...extra])];
+}
+
 function primaryPromptRecallTags(input: CodexHookInput): string[] {
   const tags: string[] = [];
   const workspaceTag = workspaceTagFromCwd(input.cwd);
@@ -685,7 +695,7 @@ export function projectTagFromCwd(cwd: string | undefined): string | undefined {
     .replace(/[^a-z0-9_.-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   if (!project || GENERIC_RECALL_TOKENS.has(project)) return undefined;
-  return `project:${canonicalProject(project)}`;
+  return `project:${project}`;
 }
 
 export function workspaceTagFromCwd(cwd: string | undefined): string | undefined {

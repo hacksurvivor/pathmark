@@ -113,7 +113,7 @@ export async function dreamMemory(
   const aliases = projectAliases(config.storeDir);
   const canonical = (tag: string) => {
     const name = tag.slice("project:".length);
-    return `project:${aliases[name] ?? name}`;
+    return `project:${Object.hasOwn(aliases, name) ? aliases[name] : name}`;
   };
   const wanted = new Set((options.projects ?? []).map(projectTag).map(canonical));
 

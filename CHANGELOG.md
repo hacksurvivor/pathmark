@@ -8,7 +8,7 @@ No unreleased changes.
 
 ## Releases
 
-- [v0.2.1](docs/releases/v0.2.1.md): the session-start snapshot finds the current project's conclusions in large stores, capture applies project aliases, and dream replacements keep their page tags.
+- [v0.2.1](docs/releases/v0.2.1.md): the session-start snapshot finds the current project's conclusions in large stores, snapshot lookups use project aliases and respect namespaces, and replacements keep their page tags.
 - [v0.2.0](docs/releases/v0.2.0.md): `pathmark dream` consolidates captured sessions unattended (optional auto-approval of conclusions grounded in the user's own words, contradicted conclusions replaced with history kept, reviewed evidence remembered). `pathmark import --merge` keeps two copies of a store in step, approvals and deletes included; retention now expires only automatic capture and keeps cited evidence.
 - [v0.1.17](docs/releases/v0.1.17.md) — `pathmark setup claude-code --apply-permissions` lets Claude Code run Pathmark's local read-only tools without prompts or auto-mode classifier round-trips; the allow list is derived from and tested against tool annotations.
 - [v0.1.16](docs/releases/v0.1.16.md) — Claude Code gets auto-capture hooks, a user-scoped install, and a `claude` synthesis preset; `pathmark import-native claude-code` brings Claude Code auto-memory into the shared store; every MCP tool now carries annotations and the server sends usage instructions that survive deferred tool search.
