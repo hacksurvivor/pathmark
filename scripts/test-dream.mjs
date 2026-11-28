@@ -264,7 +264,6 @@ try {
   await prompt({ session_id: "relay-session", cwd: "/work/iota", prompt: "<task-notification>done</task-notification>" });
   await prompt({ session_id: "relay-session-2", cwd: "/work/iota", prompt: "<task-notification>done</task-notification>" });
   const twins = (await relayStore.all({ kind: "memory" })).filter((r) => r.text.startsWith("<task-notification>"));
-  const { createHash } = await import("node:crypto");
   assert.ok(twins.every((r) => r.tags.includes("relayed")), "relayed at capture in every session");
 
   // --- snapshot: the current project's facts show up even in a store with hundreds of newer ones ---
