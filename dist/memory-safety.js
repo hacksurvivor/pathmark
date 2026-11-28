@@ -15,9 +15,9 @@ const RELAYED_PREFIXES = [
     /^Provider context handoff\b/i,
     /^\[Historical (?:user|assistant);/i,
     /^\[SYSTEM NOTIFICATION\b/i,
-    // Harness blocks: <heartbeat>, <in-app-browser-context ...>, <task>, <send_user_message>, <codex_delegation> and the like.
-    // A typed message almost never opens with a markup tag; a misfire only means it doesn't count toward auto-approval.
-    /^<[a-z][a-z0-9_-]*(?:\s[^>]*)?>/i,
+    /^\[From grokhost:/i,
+    // Known harness envelopes. Listed explicitly: a pasted block (<pasted_content>) is the owner's own submission.
+    /^<(?:heartbeat|in-app-browser-context|task|send_user_message|codex_delegation|realtime_delegation|subagent_notification|environment_context|system-reminder|local-command-stdout|local-command-caveat)\b/i,
 ];
 export function isRelayedMessage(text) {
     const normalized = text.trimStart();

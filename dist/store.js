@@ -1327,6 +1327,7 @@ function contentHash(record) {
         tag !== "codex-raw" &&
         tag !== "codex-session" &&
         tag !== "redacted" &&
+        tag !== "relayed" && // derived from the text, so it never makes two copies of one message distinct
         !APPROVAL_STATE_TAGS.has(tag));
     return createHash("sha256")
         .update(record.kind)

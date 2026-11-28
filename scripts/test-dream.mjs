@@ -259,6 +259,13 @@ try {
   assert.ok(isRelayedMessage('<in-app-browser-context source="ambient-ui-state">x'), "ambient UI state is relayed");
   assert.ok(!isRelayedMessage("[assistant-quote-1] fix this <assistant_citations>[]</assistant_citations>"), "a quote with the owner's comment stays the owner's words");
   assert.ok(!isRelayedMessage("Убедись, что Hesy Cloud работает не хуже"), "plain prompts are the owner's words");
+  assert.ok(isRelayedMessage('[From grokhost: the Bot "x" asks for this to be done on the owner\'s Mac.]\nTask: y'), "grokhost handoffs are relayed");
+  assert.ok(!isRelayedMessage("<pasted_content id=1>my notes</pasted_content>"), "a paste is the owner's own submission");
+  await prompt({ session_id: "relay-session", cwd: "/work/iota", prompt: "<task-notification>done</task-notification>" });
+  await prompt({ session_id: "relay-session-2", cwd: "/work/iota", prompt: "<task-notification>done</task-notification>" });
+  const twins = (await relayStore.all({ kind: "memory" })).filter((r) => r.text.startsWith("<task-notification>"));
+  const { createHash } = await import("node:crypto");
+  assert.ok(twins.every((r) => r.tags.includes("relayed")), "relayed at capture in every session");
 
   // --- snapshot: the current project's facts show up even in a store with hundreds of newer ones ---
   process.env.PATHMARK_STORE_DIR = path.join(temp, "snapshot");
