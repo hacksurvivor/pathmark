@@ -20,6 +20,9 @@ const RELAYED_PREFIXES = [
   /^Provider context handoff\b/i,
   /^\[Historical (?:user|assistant);/i,
   /^\[SYSTEM NOTIFICATION\b/i,
+  // Harness blocks: <heartbeat>, <in-app-browser-context ...>, <task>, <send_user_message>, <codex_delegation> and the like.
+  // A typed message almost never opens with a markup tag; a misfire only means it doesn't count toward auto-approval.
+  /^<[a-z][a-z0-9_-]*(?:\s[^>]*)?>/i,
 ];
 
 export function isRelayedMessage(text: string): boolean {

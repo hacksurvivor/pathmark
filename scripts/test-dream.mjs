@@ -254,6 +254,11 @@ try {
   const ownerOne = relayRecords.find((r) => r.text.startsWith("Please deploy"));
   assert.ok(relayedOne?.tags.includes("relayed"), "a relayed message is tagged at capture");
   assert.ok(ownerOne && !ownerOne.tags.includes("relayed"), "the owner's own prompt is not");
+  const { isRelayedMessage } = await import("../dist/memory-safety.js");
+  assert.ok(isRelayedMessage("<heartbeat>\n  <automation>check</automation>"), "harness blocks are relayed");
+  assert.ok(isRelayedMessage('<in-app-browser-context source="ambient-ui-state">x'), "ambient UI state is relayed");
+  assert.ok(!isRelayedMessage("[assistant-quote-1] fix this <assistant_citations>[]</assistant_citations>"), "a quote with the owner's comment stays the owner's words");
+  assert.ok(!isRelayedMessage("Убедись, что Hesy Cloud работает не хуже"), "plain prompts are the owner's words");
 
   // --- snapshot: the current project's facts show up even in a store with hundreds of newer ones ---
   process.env.PATHMARK_STORE_DIR = path.join(temp, "snapshot");
