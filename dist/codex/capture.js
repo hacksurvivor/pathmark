@@ -3,7 +3,7 @@ import path from "node:path";
 import { consolidationNudge, prepareConsolidationBatch, } from "../consolidate.js";
 import { loadConfig } from "../config.js";
 import { deterministicId } from "../ids.js";
-import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "../memory-safety.js";
+import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG, isRelayedMessage, RELAYED_TAG } from "../memory-safety.js";
 import { redactSecrets } from "../redact.js";
 import { canonicalProject } from "../aliases.js";
 import { informativeSearchTerms, selectRelevantResultsByIntent } from "../relevance.js";
@@ -440,6 +440,8 @@ function capturedRecord(input) {
         tags.push(workspaceTag);
     if (input.immediatePrompt)
         tags.push(IMMEDIATE_PROMPT_TAG);
+    if (input.role === "user" && isRelayedMessage(input.text))
+        tags.push(RELAYED_TAG);
     if (redacted.redacted || redacted.text.includes("[REDACTED]"))
         tags.push("redacted");
     const normalizedText = normalizeCapturedText(redacted.text);

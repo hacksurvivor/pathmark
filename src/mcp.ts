@@ -39,7 +39,7 @@ export async function runMcpServer(): Promise<void> {
     {
       name: "pathmark",
       title: "Pathmark",
-      version: "0.2.1",
+      version: "0.2.2",
       websiteUrl: "https://github.com/hacksurvivor/pathmark",
     },
     { instructions: SERVER_INSTRUCTIONS },

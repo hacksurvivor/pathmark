@@ -3,6 +3,23 @@ const MEMORY_BOUNDARY_RE = /<\/?pathmark-memory(?:\s|>)/i;
 const INSTRUCTION_OVERRIDE_RE = /\b(?:ignore|disregard|override|forget)\s+(?:all\s+)?(?:previous|prior|system|developer)\s+(?:instructions?|messages?|rules?)\b/i;
 const RUSSIAN_INSTRUCTION_OVERRIDE_RE = /\b(?:игнорируй|игнорировать|забудь|переопредели)\s+(?:все\s+)?(?:предыдущие|системные|разработчика)\s+(?:инструкции|сообщения|правила)\b/i;
 export const QUARANTINED_MEMORY_TAG = "memory-quarantined";
+/** Tag for a captured "user" message the owner didn't type: tool and agent messages delivered through the user channel. */
+export const RELAYED_TAG = "relayed";
+// Messages that arrive as user turns but come from a tool, another agent or the harness (T3 Code relays,
+// delegated-task results, task notifications, context handoffs). They are never the owner's own words.
+const RELAYED_PREFIXES = [
+    /^\[T3 Code:/i,
+    /^Delegated task node:/i,
+    /^<task-notification>/i,
+    /^Context handoff \(/i,
+    /^Provider context handoff\b/i,
+    /^\[Historical (?:user|assistant);/i,
+    /^\[SYSTEM NOTIFICATION\b/i,
+];
+export function isRelayedMessage(text) {
+    const normalized = text.trimStart();
+    return RELAYED_PREFIXES.some((pattern) => pattern.test(normalized));
+}
 export function isInternalInstructionText(text) {
     const normalized = text.trimStart();
     return (/^#{1,3}\s*(?:memory writing agent|response annotations|files mentioned by the user|diff comments)\b/i.test(normalized) ||

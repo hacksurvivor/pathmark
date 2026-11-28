@@ -7,6 +7,26 @@ const RUSSIAN_INSTRUCTION_OVERRIDE_RE =
 
 export const QUARANTINED_MEMORY_TAG = "memory-quarantined";
 
+/** Tag for a captured "user" message the owner didn't type: tool and agent messages delivered through the user channel. */
+export const RELAYED_TAG = "relayed";
+
+// Messages that arrive as user turns but come from a tool, another agent or the harness (T3 Code relays,
+// delegated-task results, task notifications, context handoffs). They are never the owner's own words.
+const RELAYED_PREFIXES = [
+  /^\[T3 Code:/i,
+  /^Delegated task node:/i,
+  /^<task-notification>/i,
+  /^Context handoff \(/i,
+  /^Provider context handoff\b/i,
+  /^\[Historical (?:user|assistant);/i,
+  /^\[SYSTEM NOTIFICATION\b/i,
+];
+
+export function isRelayedMessage(text: string): boolean {
+  const normalized = text.trimStart();
+  return RELAYED_PREFIXES.some((pattern) => pattern.test(normalized));
+}
+
 export function isInternalInstructionText(text: string): boolean {
   const normalized = text.trimStart();
   return (
