@@ -7,7 +7,7 @@ import {
 } from "../consolidate.js";
 import { loadConfig } from "../config.js";
 import { deterministicId } from "../ids.js";
-import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "../memory-safety.js";
+import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG, isRelayedMessage, RELAYED_TAG } from "../memory-safety.js";
 import { redactSecrets } from "../redact.js";
 import { canonicalProject } from "../aliases.js";
 import { informativeSearchTerms, selectRelevantResultsByIntent } from "../relevance.js";
@@ -18,6 +18,7 @@ import type { PathmarkActivity, PathmarkRecordDraft, SearchResult } from "../typ
 import { captureToolActivity, digest } from "./activity.js";
 import { readCursorState, writeCursor } from "./cursor.js";
 import {
+  isNonInteractiveCodexSession,
   normalizeCodexUserMessage,
   readCodexLegacyNoiseTurns,
   readCodexToolResults,
@@ -125,6 +126,7 @@ export async function prompt(input: CodexHookInput): Promise<string> {
       text,
       at: promptAt,
       immediatePrompt: true,
+      relayed: await isNonInteractiveCodexSession(input.transcript_path),
     }));
     if (context) return context;
   } catch (error) {
@@ -381,6 +383,7 @@ export async function writeback(input: CodexHookInput): Promise<string> {
     const store = new PathmarkStore(config);
     const session = sessionId(input);
     const turns = await readCodexTranscriptStrict(input.transcript_path);
+    const automated = await isNonInteractiveCodexSession(input.transcript_path);
     const toolResults = await readCodexToolResults(input.transcript_path);
     const cursor = await readCursorState(config.storeDir, session);
     const parserChanged = cursor.count > 0 && cursor.parserVersion !== TRANSCRIPT_PARSER_VERSION;
@@ -408,6 +411,7 @@ export async function writeback(input: CodexHookInput): Promise<string> {
           text: turn.text,
           at: turn.at ?? new Date().toISOString(),
           stablePart: rotationDiscriminator ? `rotation:${rotationDiscriminator}:${turn.index}` : String(turn.index),
+          relayed: automated,
         }),
       );
     }
@@ -545,6 +549,8 @@ function capturedRecord(input: {
   at: string;
   stablePart?: string;
   immediatePrompt?: boolean;
+  /** The turn came from automation (a `codex exec` session), whatever its text looks like. */
+  relayed?: boolean;
 }): PathmarkRecordDraft {
   const redacted = redactSecrets(input.text);
   const roleTag = `role-${input.role}`;
@@ -554,6 +560,7 @@ function capturedRecord(input: {
   const workspaceTag = workspaceTagFromCwd(input.cwd);
   if (workspaceTag) tags.push(workspaceTag);
   if (input.immediatePrompt) tags.push(IMMEDIATE_PROMPT_TAG);
+  if (input.role === "user" && (input.relayed || isRelayedMessage(input.text))) tags.push(RELAYED_TAG);
   if (redacted.redacted || redacted.text.includes("[REDACTED]")) tags.push("redacted");
   const normalizedText = normalizeCapturedText(redacted.text);
   const stablePart = input.stablePart ?? input.at;

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { open, readFile } from "node:fs/promises";
 
 export interface CodexTurn {
   role: "user" | "assistant";
@@ -31,6 +31,34 @@ const INJECTED_TAGS = [
   "recommended_plugins",
   "subagent_notification",
 ];
+
+// A `codex exec` session (session_meta source "exec", originator "codex_exec") runs with nobody typing: every user
+// turn in it is automation, never the owner's words.
+export async function isNonInteractiveCodexSession(file: string | undefined): Promise<boolean> {
+  if (!file) return false;
+  let head: string;
+  try {
+    const handle = await open(file, "r");
+    try {
+      const buffer = Buffer.alloc(256 * 1024);
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+      head = buffer.subarray(0, bytesRead).toString("utf8");
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return false;
+  }
+  for (const line of head.split("\n").slice(0, 20)) {
+    try {
+      const event = JSON.parse(line) as { type?: unknown; payload?: { source?: unknown; originator?: unknown } };
+      if (event.type === "session_meta") return event.payload?.source === "exec" || event.payload?.originator === "codex_exec";
+    } catch {
+      // partial or non-JSON line: keep looking
+    }
+  }
+  return false;
+}
 
 export async function readCodexTranscript(file: string): Promise<CodexTurn[]> {
   return readCodexTranscriptFile(file, { strict: false });

@@ -5,7 +5,7 @@ import path from "node:path";
 import { loadConfig } from "../dist/config.js";
 import { dreamMemory } from "../dist/dream.js";
 import { buildMemorySnapshot } from "../dist/snapshot.js";
-import { projectTagFromCwd, recall } from "../dist/codex/capture.js";
+import { projectTagFromCwd, prompt, recall } from "../dist/codex/capture.js";
 import { canonicalProject } from "../dist/aliases.js";
 import { PathmarkStore } from "../dist/store.js";
 
@@ -30,6 +30,7 @@ try {
       'if (input.includes("Verification task")) { process.stdout.write(JSON.stringify({ supported: !input.includes("Kubernetes") })); process.exit(0); }',
       'if (input.includes("broken-reply")) { process.stdout.write("Sorry, I could not"); process.exit(0); }',
       "const out = [];",
+      'if (input.includes("relay-legacy")) out.push({ text: "Iota uses Postgres 18 (2026-11-27).", tags: ["architecture"], evidenceIds: ["relay-legacy"], confidence: 0.97, supersedes: null });',
       'if (input.includes("eta-owner")) out.push({ text: "Eta uses port 4100 (2026-11-27).", tags: ["decision"], evidenceIds: ["eta-owner"], confidence: 0.95, supersedes: "eta-pending" });',
       'if (input.includes("theta-edited")) out.push({ text: "Theta deploys nightly (2026-11-27).", tags: ["decision"], evidenceIds: ["theta-edited"], confidence: 0.95, supersedes: null });',
       'if (input.includes("epsilon-owner")) out.push({ text: "Epsilon ships on Fridays (2026-11-27).", tags: ["decision"], evidenceIds: ["epsilon-owner"], confidence: 0.95, supersedes: null });',
@@ -82,6 +83,8 @@ try {
     { id: "eta-owner", kind: "memory", text: "Eta moved to port 4100.", tags: ["project:eta", "role-user", "codex-raw"], source: "test", createdAt: recent(28) },
     { id: "eta-two", kind: "memory", text: "Noted.", tags: ["project:eta", "role-assistant", "codex-raw"], source: "test", createdAt: recent(27) },
     { id: "theta-two", kind: "memory", text: "Sure.", tags: ["project:theta", "role-assistant", "codex-raw"], source: "test", createdAt: recent(25) },
+    { id: "relay-legacy", kind: "memory", text: "Delegated task node:abc (Upgrade iota) [completed]: Iota now uses Postgres 18.", tags: ["project:iota", "role-user", "codex-raw"], source: "test", createdAt: recent(24) },
+    { id: "relay-two", kind: "memory", text: "[T3 Code: this message came through T3 Code's tools, not from the user typing in this chat.] Check iota.", tags: ["project:iota", "role-user", "codex-raw", "relayed"], source: "test", createdAt: recent(23) },
     { id: "too-old", kind: "memory", text: "An alpha note from long ago.", tags: ["project:alpha", "role-user", "codex-raw"], source: "test", createdAt: "2025-01-01T00:00:00.000Z" },
   ]);
 
@@ -153,6 +156,8 @@ try {
   await store.mergeRecords([{ id: "theta-edited", kind: "memory", text: "Theta deploys nightly.", tags: ["project:theta", "role-user", "codex-raw"], source: "test", createdAt: recent(26), updatedAt: recent(26), history: [{ text: "Theta deploys weekly.", tags: [], source: "test", updatedAt: recent(27) }] }]);
   const theta = await dreamMemory(store, dreamConfig, { apply: true, autoApprove: true, projects: ["theta"] });
   assert.equal(theta.projects[0].changes[0].action, "pending", "a capture whose text was ever edited is not the owner's words");
+  const iota = await dreamMemory(store, dreamConfig, { apply: true, autoApprove: true, projects: ["iota"] });
+  assert.equal(iota.projects[0].changes[0].action, "pending", "a delegate result captured as a user turn is not the owner's words");
   const captured = await store.update("owner-region", { text: "An agent rewrote this prompt." });
   assert.ok(!captured.tags.includes("codex-raw") && captured.tags.includes("role-user"), "editing captured text drops the capture marker");
   const callsAfterFirst = (await readFile(calls, "utf8")).split("\n").filter(Boolean).length;
@@ -238,6 +243,44 @@ try {
   assert.equal((await compactStore.all({ includeDeleted: true })).filter((record) => record.id.startsWith("twin-")).length, 2, "tombstones are never deduped");
   await compactStore.compact({ dryRun: false, retentionDays: 30, tombstoneDays: 0 });
   assert.ok(!(await compactStore.all({ includeDeleted: true })).some((record) => record.id === "recently-deleted"), "tombstoneDays 0 drops tombstones");
+
+  // --- capture tags relayed messages ---
+  process.env.PATHMARK_STORE_DIR = path.join(temp, "relay");
+  const relayStore = new PathmarkStore(loadConfig());
+  await prompt({ session_id: "relay-session", cwd: "/work/iota", prompt: "[T3 Code: the agent in T3 thread \"x\" sent this message, not the user.] Do the thing." });
+  await prompt({ session_id: "relay-session", cwd: "/work/iota", prompt: "Please deploy iota on Friday." });
+  const relayRecords = await relayStore.recordsWithTags(["session:relay-session"]);
+  const relayedOne = relayRecords.find((r) => r.text.startsWith("[T3 Code:"));
+  const ownerOne = relayRecords.find((r) => r.text.startsWith("Please deploy"));
+  assert.ok(relayedOne?.tags.includes("relayed"), "a relayed message is tagged at capture");
+  assert.ok(ownerOne && !ownerOne.tags.includes("relayed"), "the owner's own prompt is not");
+  const { isRelayedMessage } = await import("../dist/memory-safety.js");
+  assert.ok(isRelayedMessage("<heartbeat>\n  <automation>check</automation>"), "harness blocks are relayed");
+  assert.ok(isRelayedMessage('<in-app-browser-context source="ambient-ui-state">x'), "ambient UI state is relayed");
+  assert.ok(!isRelayedMessage("[assistant-quote-1] fix this <assistant_citations>[]</assistant_citations>"), "a quote with the owner's comment stays the owner's words");
+  assert.ok(!isRelayedMessage("Убедись, что Hesy Cloud работает не хуже"), "plain prompts are the owner's words");
+  assert.ok(isRelayedMessage('[From grokhost: the Bot "x" asks for this to be done on the owner\'s Mac.]\nTask: y'), "grokhost handoffs are relayed");
+  assert.ok(!isRelayedMessage("<pasted_content id=1>my notes</pasted_content>"), "a paste is the owner's own submission");
+  await prompt({ session_id: "relay-session", cwd: "/work/iota", prompt: "<task-notification>done</task-notification>" });
+  await prompt({ session_id: "relay-session-2", cwd: "/work/iota", prompt: "<task-notification>done</task-notification>" });
+  const twins = (await relayStore.all({ kind: "memory" })).filter((r) => r.text.startsWith("<task-notification>"));
+  assert.ok(twins.every((r) => r.tags.includes("relayed")), "relayed at capture in every session");
+  // A `codex exec` session: nobody types, so every user turn is relayed, image prompts included.
+  const execTranscript = path.join(temp, "exec-rollout.jsonl");
+  const userTurn = (text) => JSON.stringify({ timestamp: recent(2), type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text }] } });
+  await writeFile(execTranscript, [
+    JSON.stringify({ timestamp: recent(3), type: "session_meta", payload: { id: "exec-session", source: "exec", originator: "codex_exec", cwd: "/work/iota" } }),
+    userTurn('<image name=[Image #1] path="/x.jpg">'),
+    userTurn("You are a tough, specific YouTube editor reviewing a video."),
+  ].join("\n") + "\n");
+  await prompt({ session_id: "exec-session", cwd: "/work/iota", prompt: "You are a tough, specific YouTube editor reviewing a video.", transcript_path: execTranscript });
+  const execRecords = await relayStore.recordsWithTags(["session:exec-session"]);
+  assert.ok(execRecords.length > 0 && execRecords.every((r) => r.tags.includes("relayed")), "user turns of an exec session are relayed");
+  const interactive = path.join(temp, "cli-rollout.jsonl");
+  await writeFile(interactive, JSON.stringify({ timestamp: recent(3), type: "session_meta", payload: { id: "cli-session-x", source: "cli", originator: "codex_cli_rs" } }) + "\n");
+  await prompt({ session_id: "cli-session-x", cwd: "/work/iota", prompt: '<image name=[Image #1] path="/y.jpg"> look at this', transcript_path: interactive });
+  const cliRecords = await relayStore.recordsWithTags(["session:cli-session-x"]);
+  assert.ok(cliRecords.length > 0 && cliRecords.every((r) => !r.tags.includes("relayed")), "the owner's own image prompt in an interactive session stays theirs");
 
   // --- snapshot: the current project's facts show up even in a store with hundreds of newer ones ---
   process.env.PATHMARK_STORE_DIR = path.join(temp, "snapshot");

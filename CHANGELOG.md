@@ -8,6 +8,7 @@ No unreleased changes.
 
 ## Releases
 
+- [v0.2.2](docs/releases/v0.2.2.md): relayed messages (T3 tool messages, delegate results, notifications, handoffs) are tagged at capture and never count as the user's words for dream auto-approval.
 - [v0.2.1](docs/releases/v0.2.1.md): the session-start snapshot finds the current project's conclusions in large stores, snapshot lookups use project aliases and respect namespaces, and replacements keep their page tags.
 - [v0.2.0](docs/releases/v0.2.0.md): `pathmark dream` consolidates captured sessions unattended (optional auto-approval of conclusions grounded in the user's own words, contradicted conclusions replaced with history kept, reviewed evidence remembered). `pathmark import --merge` keeps two copies of a store in step, approvals and deletes included; retention now expires only automatic capture and keeps cited evidence.
 - [v0.1.17](docs/releases/v0.1.17.md) — `pathmark setup claude-code --apply-permissions` lets Claude Code run Pathmark's local read-only tools without prompts or auto-mode classifier round-trips; the allow list is derived from and tested against tool annotations.

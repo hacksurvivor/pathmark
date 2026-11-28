@@ -12,6 +12,7 @@ export interface CodexToolResult {
     exitCode?: number;
     durationMs?: number;
 }
+export declare function isNonInteractiveCodexSession(file: string | undefined): Promise<boolean>;
 export declare function readCodexTranscript(file: string): Promise<CodexTurn[]>;
 export declare function readCodexTranscriptStrict(file: string): Promise<CodexTurn[]>;
 export declare function readCodexToolResults(file: string): Promise<CodexToolResult[]>;

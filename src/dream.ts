@@ -4,7 +4,7 @@ import { conclusionApprovalStatus } from "./approval.js";
 import { synthesizeWithCommand } from "./chat.js";
 import { isConsolidationEvidence } from "./consolidate.js";
 import { projectAliases } from "./aliases.js";
-import { isUnsafeMemoryText } from "./memory-safety.js";
+import { isRelayedMessage, isUnsafeMemoryText, RELAYED_TAG } from "./memory-safety.js";
 import { tokenizeSearchText } from "./tokenize.js";
 import type { PathmarkStore } from "./store.js";
 import type { PathmarkConfig, PathmarkRecord, SearchResult } from "./types.js";
@@ -382,7 +382,15 @@ async function applyCandidate(
 // The user's own words: a prompt captured by the hooks (role-user + codex-raw). MCP writes can't set codex-raw.
 function isOwnerWords(record: PathmarkRecord): boolean {
   // A record whose text was ever edited (history) is no longer verbatim, whatever its tags say.
-  return record.tags.includes("role-user") && record.tags.includes("codex-raw") && !(record.history?.length);
+  // Relayed messages (T3 tool messages, delegate results, notifications) arrive as user turns but aren't the owner's
+  // words; older captures without the tag are recognised by their text.
+  return (
+    record.tags.includes("role-user") &&
+    record.tags.includes("codex-raw") &&
+    !record.tags.includes(RELAYED_TAG) &&
+    !isRelayedMessage(record.text) &&
+    !(record.history?.length)
+  );
 }
 
 // Auto-approval needs a second, narrow check: do the cited words of the user actually say this?
@@ -451,7 +459,7 @@ function dreamInstructions(
     `You are performing a dream for the memory of ${project}: a reflective pass that turns recent agent sessions into durable conclusions future sessions can act on.`,
     `Today is ${now.toISOString().slice(0, 10)}.`,
     "",
-    "The memory context lists new evidence from recent sessions. Tag role-user = the owner's own words. Tag role-assistant = an agent's reply: a claim, which counts only when the owner confirmed it or it reports a verified result (a merged PR, a passing check, a command that worked).",
+    "The memory context lists new evidence from recent sessions. Tag role-user = the owner's own words, except records tagged relayed or starting with \"[T3 Code:\", \"Delegated task\", \"<task-notification>\" or \"Context handoff\": those are tool or agent messages and count like an agent's reply. Tag role-assistant = an agent's reply: a claim, which counts only when the owner confirmed it or it reports a verified result (a merged PR, a passing check, a command that worked).",
     "",
     "Existing conclusions for this project (id | status | text):",
     ...(existing.length > 0

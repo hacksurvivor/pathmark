@@ -3,7 +3,7 @@ import path from "node:path";
 import { consolidationNudge, prepareConsolidationBatch, } from "../consolidate.js";
 import { loadConfig } from "../config.js";
 import { deterministicId } from "../ids.js";
-import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG } from "../memory-safety.js";
+import { isInternalInstructionText, isUnsafeMemoryText, QUARANTINED_MEMORY_TAG, isRelayedMessage, RELAYED_TAG } from "../memory-safety.js";
 import { redactSecrets } from "../redact.js";
 import { canonicalProject } from "../aliases.js";
 import { informativeSearchTerms, selectRelevantResultsByIntent } from "../relevance.js";
@@ -12,7 +12,7 @@ import { buildMemorySnapshot } from "../snapshot.js";
 import { tokenizeSearchText } from "../tokenize.js";
 import { captureToolActivity, digest } from "./activity.js";
 import { readCursorState, writeCursor } from "./cursor.js";
-import { normalizeCodexUserMessage, readCodexLegacyNoiseTurns, readCodexToolResults, readCodexTranscriptStrict, } from "./transcript.js";
+import { isNonInteractiveCodexSession, normalizeCodexUserMessage, readCodexLegacyNoiseTurns, readCodexToolResults, readCodexTranscriptStrict, } from "./transcript.js";
 const TRIVIAL_PROMPT = /^(?:y|n|yes|no|ok|okay|sure|thanks|yep|nope|continue|go ahead|do it|proceed)\.?$/i;
 const MEMORY_CUE = /\b(?:before|previous|previously|earlier|last time|remember|memory|context|history|decided|decision|same as|again|preference|prefer|repo|project)\b/i;
 const GENERIC_RECALL_TOKENS = new Set(["codex", "coding", "users", "user", "mac", "home", "documents"]);
@@ -85,6 +85,7 @@ export async function prompt(input) {
             text,
             at: promptAt,
             immediatePrompt: true,
+            relayed: await isNonInteractiveCodexSession(input.transcript_path),
         }));
         if (context)
             return context;
@@ -294,6 +295,7 @@ export async function writeback(input) {
         const store = new PathmarkStore(config);
         const session = sessionId(input);
         const turns = await readCodexTranscriptStrict(input.transcript_path);
+        const automated = await isNonInteractiveCodexSession(input.transcript_path);
         const toolResults = await readCodexToolResults(input.transcript_path);
         const cursor = await readCursorState(config.storeDir, session);
         const parserChanged = cursor.count > 0 && cursor.parserVersion !== TRANSCRIPT_PARSER_VERSION;
@@ -324,6 +326,7 @@ export async function writeback(input) {
                 text: turn.text,
                 at: turn.at ?? new Date().toISOString(),
                 stablePart: rotationDiscriminator ? `rotation:${rotationDiscriminator}:${turn.index}` : String(turn.index),
+                relayed: automated,
             }));
         }
         await store.addRecords(records);
@@ -440,6 +443,8 @@ function capturedRecord(input) {
         tags.push(workspaceTag);
     if (input.immediatePrompt)
         tags.push(IMMEDIATE_PROMPT_TAG);
+    if (input.role === "user" && (input.relayed || isRelayedMessage(input.text)))
+        tags.push(RELAYED_TAG);
     if (redacted.redacted || redacted.text.includes("[REDACTED]"))
         tags.push("redacted");
     const normalizedText = normalizeCapturedText(redacted.text);
