@@ -265,6 +265,22 @@ try {
   await prompt({ session_id: "relay-session-2", cwd: "/work/iota", prompt: "<task-notification>done</task-notification>" });
   const twins = (await relayStore.all({ kind: "memory" })).filter((r) => r.text.startsWith("<task-notification>"));
   assert.ok(twins.every((r) => r.tags.includes("relayed")), "relayed at capture in every session");
+  // A `codex exec` session: nobody types, so every user turn is relayed, image prompts included.
+  const execTranscript = path.join(temp, "exec-rollout.jsonl");
+  const userTurn = (text) => JSON.stringify({ timestamp: recent(2), type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text }] } });
+  await writeFile(execTranscript, [
+    JSON.stringify({ timestamp: recent(3), type: "session_meta", payload: { id: "exec-session", source: "exec", originator: "codex_exec", cwd: "/work/iota" } }),
+    userTurn('<image name=[Image #1] path="/x.jpg">'),
+    userTurn("You are a tough, specific YouTube editor reviewing a video."),
+  ].join("\n") + "\n");
+  await prompt({ session_id: "exec-session", cwd: "/work/iota", prompt: "You are a tough, specific YouTube editor reviewing a video.", transcript_path: execTranscript });
+  const execRecords = await relayStore.recordsWithTags(["session:exec-session"]);
+  assert.ok(execRecords.length > 0 && execRecords.every((r) => r.tags.includes("relayed")), "user turns of an exec session are relayed");
+  const interactive = path.join(temp, "cli-rollout.jsonl");
+  await writeFile(interactive, JSON.stringify({ timestamp: recent(3), type: "session_meta", payload: { id: "cli-session-x", source: "cli", originator: "codex_cli_rs" } }) + "\n");
+  await prompt({ session_id: "cli-session-x", cwd: "/work/iota", prompt: '<image name=[Image #1] path="/y.jpg"> look at this', transcript_path: interactive });
+  const cliRecords = await relayStore.recordsWithTags(["session:cli-session-x"]);
+  assert.ok(cliRecords.length > 0 && cliRecords.every((r) => !r.tags.includes("relayed")), "the owner's own image prompt in an interactive session stays theirs");
 
   // --- snapshot: the current project's facts show up even in a store with hundreds of newer ones ---
   process.env.PATHMARK_STORE_DIR = path.join(temp, "snapshot");
